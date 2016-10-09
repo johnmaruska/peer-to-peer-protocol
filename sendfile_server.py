@@ -9,17 +9,32 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
     client.
     """
 
+    '''
+    Who knows?
+    Don't read the whole file to the memory
+    Try seek function to read specify byte
+    Client needs to assemble it.
+    '''
+
     def handle(self):
+        nth_segment = 0  # the nth segment
+        segment_length = 1024
         # self.request is the TCP socket connected to the client
         self.data = self.request.recv(1024).strip()
         print "{} wrote:".format(self.client_address[0])
         print self.data
         # Send file when client connects
         filename = "input.pdf"
-        f = open(filename, "rb").read()
-        print "Send File"
-        self.request.sendall(f)
-        self.request.sendall(self.data.upper())
+        f = open(filename, "rb")
+        print "Send File" + nth_segment
+        
+        #divide the file & Send
+        f.seek(segment_length * k, 1)
+        send_segment = f.read(segment_length);
+        self.request.sendall(send_segment)
+
+        
+
 
 if __name__ == "__main__":
     HOST, PORT = "localhost", 9999
