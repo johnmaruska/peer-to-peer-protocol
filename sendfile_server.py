@@ -20,15 +20,12 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
     def handle(self):
         nth_segment = 0  # the nth segment
         # self.request is the TCP socket connected to the client
-        self.data = self.request.recv(1024).strip()
-        print "{} wrote:".format(self.client_address[0])
-        print self.data
-        print self.client_address
         # Send file when client connects
         filename = "input.pdf"
         f = open(filename, "rb")
         size = os.path.getsize(filename)
-        segment_length = size / 1000
+        print size
+        segment_length = size / 100
         '''
         Server send the segment length at very first.
             SEGMENT [size]
@@ -45,17 +42,20 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         res = ""
         res = self.request.recv(1024)
         # divide the file & Send
-        if(res == "FINISH"):
-            pass
-        else:
-            res_list = res.split(' ')
-            if(res_list == "SUCCESS"):
-                nth_segment = int(res_list[1])
-            elif(res_list == "REQUEST"):
-                nth_segment = int(res_list[1])
-            print "Send File" + nth_segment
-            send_segment = f.read(segment_length)
-            self.request.sendall(send_segment)
+        while True:
+            if res == "FINISH":
+                break
+            else:
+                res_list = res.split(' ')
+                if res_list == "SUCCESS":
+                    nth_segment = int(res_list[1])
+                elif res_list == "REQUEST":
+                    nth_segment = int(res_list[1])
+                print "Send File" + str(nth_segment)
+                f.seek(nth_segment * segment_length, 0)
+                send_segment = f.read(segment_length)
+                self.request.sendall(send_segment)
+                res = self.request.recv(1024)
         
 
 
