@@ -1,4 +1,4 @@
-import SocketServer
+import SocketServer,os
 
 class MyTCPHandler(SocketServer.BaseRequestHandler):
     """
@@ -16,10 +16,9 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
     Client needs to assemble it.
     '''
     tracker = []
-    
+
     def handle(self):
         nth_segment = 0  # the nth segment
-        segment_length = 1024
         # self.request is the TCP socket connected to the client
         self.data = self.request.recv(1024).strip()
         print "{} wrote:".format(self.client_address[0])
@@ -28,14 +27,21 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         # Send file when client connects
         filename = "input.pdf"
         f = open(filename, "rb")
-
+        size = os.path.getsize(filename)
+        segment_length = size / 1000
         '''
+        Server send the segment length at very first.
+            SEGMENT [size]
         Client should ask the segment first, or return the segment number it received last time.
         And the format should be:
             SUCCESS [number]
             REQUEST [number]
             FINISH
+
         '''
+        msg = "SEGMENT " + str(segment_length)
+        print msg
+        self.request.sendall(msg)
         res = ""
         res = self.request.recv(1024)
         # divide the file & Send
