@@ -91,7 +91,6 @@ def commands(cmd_q: Queue):
     except KeyboardInterrupt:
         pass
 
-
 def cmd_tracker(server: socket.socket, cmd_q: Queue):
     msg = ""
     next_cmd = cmd_q.get()
@@ -103,7 +102,7 @@ def cmd_tracker(server: socket.socket, cmd_q: Queue):
         md5 = next_cmd[4]
         ip_addr = next_cmd[5]
         port_num = next_cmd[6]   
-        msg = "createtracker %s %s %s %s %s %s" % (filename, filesize, desc, md5, 
+        msg = "<createtracker %s %s %s %s %s %s>\n" % (filename, filesize, desc, md5, 
                                                     ip_addr, port_num) 
     elif(next_cmd[0]=='updatetracker'):
         filename = next_cmd[1]
@@ -111,13 +110,15 @@ def cmd_tracker(server: socket.socket, cmd_q: Queue):
         end_bytes = next_cmd[3]
         ip_addr = next_cmd[4]
         port_num = next_cmd[5]
-        msg = "updatetracker %s %s %s %s %s" % (filename, start_bytes, end_bytes,
+        msg = "<updatetracker %s %s %s %s %s>\n" % (filename, start_bytes, end_bytes,
                                                 ip_addr, port_num)
     elif(next_cmd[0]=='GET'):
         filename = next_cmd[1]
-        msg = "GET %s" % filename
+        msg = "<GET %s>\n" % filename
     elif(next_cmd[0]=='REQ' and next_cmd[1]=='LIST'):
-        msg = "REQ LIST"
+        msg = "<REQ LIST>\n"
+    
+    msg = msg + ";endTCPmessage"
     
     if(len(msg) > 0):
         server.sendall(msg)  
@@ -134,11 +135,25 @@ def track_comm(host: str, port: int, cmd_q: Queue):
     except KeyboardInterrupt:
         server.close()
 
-# TODO: receive from tracker. Need to figure out how to 
+# TODO: Check to see if ;endTCPmessage is being removed from total_msg
 def recv_from_tracker(server: socket.socket):
-    pass
-            
-# TODO: Need to implement actual download_file protocol. Take from GitHub.
+    end_marker = ";endTCPmessage"
+    total_msg=[]
+    msg=''
+    while True:
+        msg = server.recv(1024)
+        if end_marker in msg:
+            total_msg.append(msg[:msg.find(end_marker)])
+            break
+        total_msg.append(msg)
+        if len(total_msg) > 1:
+            # check if end of msg was split
+            last_pair = total_msg[-2]+total_msg[-1]
+            if end_marker in last_pair:
+                total_msg[-2] = last_pair[:last_pair.find(end_marker)]
+                total_msg.pop()
+                break
+    print(''.join(total_msg))
         
 if __name__=="__main__":
     sys.exit(main())
