@@ -35,7 +35,7 @@ class PeerServer():
         except KeyboardInterrupt:
             client.close()
             
-    # TODO: implement send file as a server. Use code from GitHub.
+    # TODO: implement send file as a server.
     def send_file():
         pass
 
@@ -56,6 +56,7 @@ def main():
         
     while(ps_t.is_alive() && ts_t.is_alive() && in_t.is_alive()):
         pass
+    ps.quit()
             
 def commands(cmd_q: Queue):
     try: # loop input and enqueue command
@@ -110,8 +111,8 @@ def cmd_tracker(server: socket.socket, cmd_q: Queue):
         end_bytes = next_cmd[3]
         ip_addr = next_cmd[4]
         port_num = next_cmd[5]
-        msg = "<updatetracker %s %s %s %s %s>\n" % (filename, start_bytes, end_bytes,
-                                                ip_addr, port_num)
+        msg = "<updatetracker %s %s %s %s %s>\n" % (filename, start_bytes, 
+                                                    end_bytes, ip_addr, port_num)
     elif(next_cmd[0]=='GET'):
         filename = next_cmd[1]
         msg = "<GET %s>\n" % filename
@@ -131,7 +132,6 @@ def track_comm(host: str, port: int, cmd_q: Queue):
         while(True):
             cmd_tracker(server, cmd_q)
             recv_from_tracker(server)
-          
     except KeyboardInterrupt:
         server.close()
 
@@ -146,7 +146,8 @@ def recv_from_tracker(server: socket.socket):
             total_msg.append(msg[:msg.find(end_marker)])
             break
         total_msg.append(msg)
-        if len(total_msg) > 1:
+        if len(total_msg) > 1: # TODO: This section weirds me out. It's supposed to handle
+                               # what happens on a split msg, but I'm not sure how it works.
             # check if end of msg was split
             last_pair = total_msg[-2]+total_msg[-1]
             if end_marker in last_pair:
