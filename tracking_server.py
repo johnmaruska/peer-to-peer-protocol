@@ -38,55 +38,51 @@ def listen_to_client(client):
             # receive command
             cmd_in = recv_msg(client)
             # Check for and execute createtracker command
-            if re.match("createtracker *", cmd_in):
-                print("cmd matched createtracker")
+            if re.match("createtracker .*", cmd_in):
                 try:
                     # grab the arguments of the createtracker command.
                     # ("*") allows description to contain spaces; others space limited
-                    m = re.match('(createtracker) ([^ ]+) ([^ ]+) ("*") ([^ ]+) ([^ ]+)'
+                    m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
                                  ' ([^ ]+)', cmd_in)
                     f_name = m.group(2)
                     f_size = m.group(3)
                     desc = m.group(4)
                     md5 = m.group(5)
                     ip_addr = m.group(6)
-                    port_num = m.group(7)
+                    port_num = m.group(7).strip('\n')
                     reply_out = createtracker(f_name, f_size, desc, md5, ip_addr, port_num)
-                    print(reply_out)  # TODO: Remove post-debugging
+                    reply_out += ';endTCPmessage'
                     client.send(reply_out.encode('utf-8'))
                 except (IndexError, AttributeError):
                     reply_out = 'createtracker fail\n'
                     client.send(reply_out.encode('utf-8'))
             # Check for and execute updatetracker command
-            if re.match('updatetracker *', cmd_in):
-                print("cmd matched updatetracker")
+            if re.match('updatetracker .*', cmd_in):
                 try:
                     m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', cmd_in)
                     f_name = m.group(2)
                     start_bytes = m.group(3)
                     end_bytes = m.group(4)
                     ip_addr = m.group(5)
-                    port_num = m.group(6)
+                    port_num = m.group(6).strip('\n')
                     reply_out = updatetracker(f_name, start_bytes, end_bytes, ip_addr, port_num)
+                    reply_out += ";endTCPmessage"
                     client.send(reply_out.encode('utf-8'))
                 except (IndexError, AttributeError):
                     reply_out = 'updatetracker fail\n'
                     client.send(reply_out.encode('utf-8'))
             # Check for and execute REQ LIST command
             if cmd_in == 'REQ LIST\n':
-                print("cmd_in matched REQ_LIST")
                 reply_out = req_list()
                 client.send(reply_out.encode('utf-8'))
             # Check for and execute GET command
             if re.match('GET .*\\n$', cmd_in):
-                print("cmd matched GET")
                 m = re.match('GET ([^ ]+\.track)', cmd_in)
-                print(m.group(1))
                 try:
                     tracker_file = m.group(1)
                     reply_out = get(tracker_file)
                 except AttributeError:
-                    reply_out = cmd_in + ' does not request a .track file.'
+                    reply_out = cmd_in.strip('\n') + ' does not request a .track file.'
                 reply_out += ';endTCPmessage'
                 client.send(reply_out.encode('utf-8'))
 
@@ -118,21 +114,21 @@ def req_list():
     file_num = 0
     for t_file in range(len(track_files)):
         file_num += 1
-        with open(track_files[t_file], 'rt') as f:
-            for line in f:
-                if "Filename: " in line:
-                    name = line.split(' ')[1].strip('\n')
-                elif "Filesize: " in line:
-                    size = line.split(' ')[1].strip('\n')
-                elif "MD5: " in line:
-                    md5 = line.split(' ')[1].strip('\n')
         try:
+            with open(track_files[t_file], 'rt') as f:
+                for line in f:
+                    if "Filename: " in line:
+                        name = line.split(' ')[1].strip('\n')
+                    elif "Filesize: " in line:
+                        size = line.split(' ')[1].strip('\n')
+                    elif "MD5: " in line:
+                        md5 = line.split(' ')[1].strip('\n')
+
             reply_msg += ('%s %s %s %s\n' % (file_num, name, size, md5))
         except UnboundLocalError:
             reply_msg = '%s ERROR: %s not properly formatted.\n' % (file_num, track_files[t_file])
             pass
     reply_msg += 'REP LIST END\n;endTCPmessage'
-    print(reply_msg)  # TODO: Remove post-debug
     return reply_msg
 
 
@@ -153,13 +149,23 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
     if os.path.isfile('./%s' % f_track):
         try:
             with open(f_track, 'rt') as f:
-                prev_contents = f.read()
-            old_pattern = '%s:%s:[^:]+:[^:]:[\w]+' % (ip_addr, port_num)
-            timestamp = time.time()
-            new_line = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
-            new_contents = re.sub(old_pattern, new_line, prev_contents)
+                old_pattern = '%s:%s:[^:]+:[^:]+:[\w]+' % (ip_addr, port_num)
+                timestamp = int(round(time.time()))
+                new_pattern = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
+                new_contents = []
+                for line in f:
+                    if re.match(old_pattern, line):
+                        new_line = re.sub(old_pattern, new_pattern, line)
+                        print(new_line)
+                        new_contents.append(new_line)
+                    else:
+                        print('Did not match new pattern')
+                        new_contents.append(line)
+            print(new_contents)
             with open(f_track, 'wt') as f:
-                f.write(new_contents)
+                for line in new_contents:
+                    f.write(line)
+
             reply_out = 'updatetracker succ\n'
         except FileNotFoundError:
             reply_out = 'updatetracker fail\n'
@@ -175,25 +181,26 @@ def createtracker(f_name, f_size, desc, md5, ip_addr, port_num):
         Filename cannot contain any '.' characters that don't prefix the file extension.
         Returns the reply string to send back to the client.
     """
-    if os.path.isfile('./%s' % f_name):
+    # Changes file extension to .track
+    if re.match('.*\.[\w]+\Z', f_name):
+        if not re.match('.*\.track\Z', f_name):
+            f_track = re.sub('\.[\w]+\Z', '.track', f_name)
+        else:  # file already has .track extension
+            f_track = f_name
+    else:  # appends .track if no given file extension
+        f_track = f_name + ".track"
+
+    if os.path.isfile('./%s' % f_track):
         # File already exists
         reply_out = 'createtracker ferr\n'
     else:
-        # Changes file extension to .track
-        if re.match('\.[\w]+\Z', f_name):
-            if not re.match('\.track\Z', f_name):
-                f_track = re.sub('\.[\w]+\Z', '.track', f_name)
-            else:  # file already has .track extension
-                f_track = f_name
-        else:  # appends .track if no given file extension
-            f_track = f_name + ".track"
         with open(f_track, 'wt') as f:
             f.write('Filename: %s\n' % f_track)
             f.write('Filesize: %s\n' % f_size)
             f.write('Description: %s\n' % desc)
             f.write('MD5: %s\n' % md5)
             f.write('# all comments must begin with # and must be ignored by the file parser\n'
-                    '# following the above fields about file to be shared will be list of peers'
+                    '# following the above fields about file to be shared will be list of peers '
                     'sharing this file\n')
             timestamp = time.time()
             f.write('%s:%s:0:%s:%s' % (ip_addr, port_num, f_size, timestamp))
@@ -213,6 +220,7 @@ def recv_msg(client: socket.socket):
         except TypeError:
             print(type(msg))
             print(type(end_marker))
+            raise
         total_msg.append(msg)
         if len(total_msg) > 1:
             # check if end of msg was split

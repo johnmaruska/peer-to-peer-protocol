@@ -3,6 +3,9 @@
     Handles both client and server portions of peer terminal.
 """
 
+import math
+import os
+import re
 import socket
 import sys
 import threading
@@ -30,7 +33,6 @@ class PeerServer:
             pass
 
     def listen(self):
-        print("PeerServer listen() entered")  # TODO: Remove post-debug
         self.welcome.listen(5)  # 5 maximum clients connected to each Peer.
         accepting = True
         while accepting:
@@ -39,11 +41,42 @@ class PeerServer:
             threading.Thread(target=self.listen_to_client, args=(client, address)).start()
             
     def quit(self):
+        # TODO: Remove files from temporary folder.
         self.welcome.close()
 
-    # TODO: implement send file as a server.
-    def send_file(self):
-        pass
+    def split_file(self, file_name, segment_size):
+        # Make split function irrelevant to OS
+        total_size = os.path.getsize(file_name)
+        file_list = []
+        with open(file_name, "rb") as f:
+            total_segments = math.ceil(total_size / segment_size)
+            for i in range(0, total_segments):
+                if i == 2:
+                    readsize = total_size - (total_segments - 1) * segment_size
+                else:
+                    readsize = segment_size
+                file_i = open("input" + str(i), "wb")
+                file_i.write(f.read(readsize))
+                file_i.close()
+                file_list.append(file_i)
+        return file_list
+
+    def send_segment(self, filename, client: socket.socket):
+        # Receive a status command: FINISH, REQUEST, or DONE
+        # REQUEST: Requests a file.
+        while True:
+            res = client.recv(1024).decode('utf-8')
+            if res == 'FINISH':
+                break
+            if res.split(' ')[0] == 'REQUEST':
+                file_size = str(os.path.getsize(filename))
+                client.send(file_size.encode('utf-8'))
+                output = open(filename, 'rb')
+                l = output.read(4096)
+                while l:
+                    client.send(l)
+                    l = output.read(4096)
+                output.close()
 
 
 def main():
@@ -63,11 +96,11 @@ def main():
         # one thread for raw input
         in_t = threading.Thread(name='input', target=commands, args=(cmd_q,))
         in_t.start()
+        while ps_t.is_alive() and ts_t.is_alive() and in_t.is_alive():
+            pass
     except RuntimeError:
         print("ERROR: Could not start all threads.")
 
-    while ps_t.is_alive() and ts_t.is_alive() and in_t.is_alive():
-        pass
     ps.quit()
 
 
@@ -76,33 +109,15 @@ def commands(cmd_q):
         while True:
             time.sleep(0.1)
             cmd = input('$ ')
-            cmd_args = cmd.split(' ')
-            
-            if cmd_args[0] == 'createtracker':
-                if len(cmd_args) == 7:
-                    cmd_q.put(cmd_args)
-                else:
-                    print('Improper number of arguments. Argument is formatted as:' \
-                          'createtracker [filename] [filesize] [description] [md5]' \
-                          '[ip-address] [port-number]')
-            elif cmd_args[0] == 'updatetracker':
-                if len(cmd_args) == 6:
-                    cmd_q.put(cmd_args)
-                else:
-                    print("Improper number of arguments. Argument is formatted as: \
-                           updatetracker [filename] [start_bytes] [end_bytes] \
-                           [ip-address] [port-number]")
-            elif cmd_args[0] == 'GET':
-                if len(cmd_args) == 2:
-                    cmd_q.put(cmd_args)
-                else:
-                    print("Improper number of arguments. Argument is formatted as: \
-                           GET [filename]")
-            elif cmd_args[0] == 'REQ' and cmd_args[1] == 'LIST':
-                if len(cmd_args) == 2:
-                    cmd_q.put(cmd_args)
-                else:
-                    print("Improper number of arguments. REQ LIST has no arguments.")
+            try:
+                cmd_args = re.match('^([^ ]+) (.*)', cmd)
+                accepted_commands = ['createtracker', 'updatetracker', 'GET']
+                if cmd_args.group(1) in accepted_commands:
+                    cmd_q.put(cmd)
+                elif re.match('REQ LIST', cmd):
+                    cmd_q.put('REQ LIST')
+            except AttributeError:
+                print('Not a valid command.')
     except KeyboardInterrupt:
         pass
 
@@ -111,27 +126,46 @@ def cmd_tracker(server, cmd_q):
     msg = ""
     next_cmd = cmd_q.get()
     print(next_cmd)   # TODO: Remove post-debugging
-    if next_cmd[0] == 'createtracker':
-        filename = next_cmd[1]
-        filesize = next_cmd[2]
-        desc = next_cmd[3]
-        md5 = next_cmd[4]
-        ip_addr = next_cmd[5]
-        port_num = next_cmd[6]   
-        msg = "createtracker %s %s %s %s %s %s\n" % (filename, filesize, desc, md5,
-                                                     ip_addr, port_num)
-    elif next_cmd[0] == 'updatetracker':
-        filename = next_cmd[1]
-        start_bytes = next_cmd[2]
-        end_bytes = next_cmd[3]
-        ip_addr = next_cmd[4]
-        port_num = next_cmd[5]
-        msg = "updatetracker %s %s %s %s %s\n" % (filename, start_bytes,
-                                                    end_bytes, ip_addr, port_num)
-    elif next_cmd[0] == 'GET':
-        filename = next_cmd[1]
-        msg = "GET %s\n" % filename
-    elif next_cmd[0] == 'REQ' and next_cmd[1] == 'LIST':
+    if re.match('createtracker .*', next_cmd):
+        m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
+                     ' ([^ ]+)', next_cmd)
+        try:
+            filename = m.group(2)
+            filesize = m.group(3)
+            desc = m.group(4)
+            md5 = m.group(5)
+            ip_addr = m.group(6)
+            port_num = m.group(7)
+            msg = "createtracker %s %s %s %s %s %s\n" % (filename, filesize, desc, md5,
+                                                         ip_addr, port_num)
+        except AttributeError:
+            print('Improper number of arguments. createtracker is formatted as: '
+                  'createtracker [filename] [filesize] [description] [md5] [ip-address] '
+                  '[port-number]')
+
+    elif re.match('updatetracker .*', next_cmd):
+        m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
+        try:
+            filename = m.group(2)
+            start_bytes = m.group(3)
+            end_bytes = m.group(4)
+            ip_addr = m.group(5)
+            port_num = m.group(6)
+            msg = "updatetracker %s %s %s %s %s\n" % (filename, start_bytes,
+                                                      end_bytes, ip_addr, port_num)
+        except AttributeError:
+            print('Improper number of arguments. Argument is formatted as: '
+                  'updatetracker [filename] [start_bytes] [end_bytes] [ip-address] '
+                  '[port-number]')
+
+    elif re.match('GET .*', next_cmd):
+        m = re.match('GET ([^ ]+\.track)', next_cmd)
+        try:
+            filename = m.group(1)
+            msg = "GET %s\n" % filename
+        except AttributeError:
+            print("Improper arguments. GET requires a [filename].track")
+    elif next_cmd == 'REQ LIST':
         msg = "REQ LIST\n"
     
     msg += ";endTCPmessage"
@@ -164,8 +198,7 @@ def recv_from_tracker(server: socket.socket):
             break
         total_msg.append(msg)
 
-        """TODO: This section weirds me out. It's supposed to handle what happens on a split msg, but I'm not sure how
-        it works."""
+        # TODO: Weird section. Supposed to handle split msg, not sure how it works
         if len(total_msg) > 1:
             # check if end of msg was split
             last_pair = total_msg[-2]+total_msg[-1]
