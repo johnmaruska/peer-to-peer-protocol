@@ -4,6 +4,7 @@ import subprocess
 #Rewrite the whole socketserver
 
 def split_file(filename, number_of_file):
+    '''
     #For macOS, it doesn't have command for split -n, use split -b instead for testing
     command = "split -n"
     number_of_file = 3
@@ -16,6 +17,19 @@ def split_file(filename, number_of_file):
     #p = subprocess.Popen("cat * >> input.pdf", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     #print (file)
     return filelist
+    '''
+    #Make split function irrelevant to OS
+    size = os.path.getsize(filename)
+    with open(filename, "rb") as f:
+        n = size // number_of_file
+        for i in range(0, number_of_file):
+            if i == 2:
+                readsize = size - (number_of_file-1) * n
+            else:
+                readsize = n
+            input = open("input" + str(i), "wb")
+            input.write(f.read(readsize))
+            input.close()
 
 def handle(sock):
     # self.request is the TCP socket connected to the client
