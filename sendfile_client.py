@@ -47,7 +47,7 @@ while count < segment_length:
             nth_segment = 0
 sock.send("FINISH".encode())
 os.chdir("./temp_client/")
-filelist = os.listdir()
+filelist = os.listdir(".")
 with open(file_name, "wb") as f:
     for name in filelist:
         input = open(name, "rb")

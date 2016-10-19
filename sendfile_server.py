@@ -22,6 +22,7 @@ def split_file(filename, number_of_file):
     size = os.path.getsize(filename)
     with open(filename, "rb") as f:
         n = size // number_of_file
+        os.chdir("./temp/")
         for i in range(0, number_of_file):
             if i == 2:
                 readsize = size - (number_of_file-1) * n
@@ -30,6 +31,8 @@ def split_file(filename, number_of_file):
             input = open("input" + str(i), "wb")
             input.write(f.read(readsize))
             input.close()
+    filelist = os.listdir('.')
+    return filelist
 
 def handle(sock):
     # self.request is the TCP socket connected to the client
@@ -78,6 +81,7 @@ def handle(sock):
             output.close()
         if res == "DONE":
             continue
+
 if __name__ == "__main__":
     HOST, PORT = "localhost", 31024
 
