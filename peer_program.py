@@ -5,6 +5,7 @@
 
 import math
 import os
+import random
 import re
 import socket
 import sys
@@ -25,12 +26,29 @@ class PeerServer:
     def listen_to_client(self, client):
         try:
             while True:
-                pass
                 # TODO: receive messages and send data
-                # P2P Protocol goes here.
-        except KeyboardInterrupt:
-            # client.close()
-            pass
+                res = client.recv(1024).decode('utf-8')
+                print(res)
+                if res == 'FINISH':  # Disconnect when finished sending.
+                    client.close()
+                    break
+                if res.split(' ')[0] == 'REQUEST':  # Send requested segment
+                    # Don't have a filelist. Need solution.
+                    # TODO: Change client side to send request in form REQUEST filename.ext #
+                    file_name = res.split(' ')[1]
+                    segment = res.split(' ')[2]
+                    file_name = re.sub("\.[\w]+\Z", '', file_name)
+                    file_seg = file_name + segment
+                    file_size = str(os.path.getsize(file_seg))
+                    client.send(file_size.encode('utf-8'))
+                    output = open(file_seg, 'rb')
+                    l = output.read(4096)
+                    while l:
+                        client.send(l)
+                        l = output.read(4096)
+                    output.close()
+        finally:
+            client.close()
 
     def listen(self):
         self.welcome.listen(5)  # 5 maximum clients connected to each Peer.
@@ -42,6 +60,7 @@ class PeerServer:
             
     def quit(self):
         # TODO: Remove files from temporary folder.
+        # TODO: Close all connected sockets
         self.welcome.close()
 
     def split_file(self, file_name, segment_size):
@@ -60,23 +79,6 @@ class PeerServer:
                 file_i.close()
                 file_list.append(file_i)
         return file_list
-
-    def send_segment(self, filename, client: socket.socket):
-        # Receive a status command: FINISH, REQUEST, or DONE
-        # REQUEST: Requests a file.
-        while True:
-            res = client.recv(1024).decode('utf-8')
-            if res == 'FINISH':
-                break
-            if res.split(' ')[0] == 'REQUEST':
-                file_size = str(os.path.getsize(filename))
-                client.send(file_size.encode('utf-8'))
-                output = open(filename, 'rb')
-                l = output.read(4096)
-                while l:
-                    client.send(l)
-                    l = output.read(4096)
-                output.close()
 
 
 def main():
@@ -163,6 +165,8 @@ def cmd_tracker(server, cmd_q):
         try:
             filename = m.group(1)
             msg = "GET %s\n" % filename
+            # TODO: Check contained md5 with protocol md5 for correctness.
+            #
         except AttributeError:
             print("Improper arguments. GET requires a [filename].track")
     elif next_cmd == 'REQ LIST':
@@ -174,6 +178,45 @@ def cmd_tracker(server, cmd_q):
         msg = msg.encode("utf-8")
         server.sendall(msg)
         
+
+def download_file():  # (filename) # Shifted sendfile_client.py into this function.
+    # TODO: call GET, parse results, assign IP and port
+    # get(filename)
+    host = '127.0.0.1'
+    port = 8888
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.connect((host, port))
+    file_name = server.recv(1024).decode('utf-8')
+    stri = server.recv(1024).decode('utf-8')
+    segment_length = int(stri.split(' ')[1])
+    nth_segment = random.randint(0, segment_length-1)
+    count = 0
+    while count < segment_length:
+        filename = 'temp_client/output' + str(nth_segment)
+        with open(filename, 'wb') as output:
+            command = 'REQUEST' + file_name + str(nth_segment)
+            server.send(command.encode())
+            received = server.recv(4096)
+            filesize = int(received.decode('utf-8'))
+            total = 0
+            while True:
+                if total >= filesize: break
+                received = server.recv(4096)
+                output.write(received)
+                total += len(received)
+            count += 1
+            nth_segment += 1
+            if nth_segment >= segment_length:
+                nth_segment = 0
+    server.send('FINISH'.encode())
+    os.chdir('./temp_client/')
+    filelist = os.listdir()
+    with open(file_name, 'wb') as f:
+        for name in filelist:
+            file_input = open(name, 'rb')
+            f.write(file_input.read())
+            file_input.close()
+
 
 def track_comm(host: str, port: int, cmd_q: queue.Queue):
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
