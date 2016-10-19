@@ -91,6 +91,7 @@ def listen_to_client(client):
 
 
 def get(tracker):
+    tracker = './torrents/' + tracker
     reply = 'REP GET BEGIN\n'
     md5 = ''
     try:
@@ -109,7 +110,7 @@ def get(tracker):
 
 def req_list():
     # os.chdir("/mydir") #mydir would have to be changed
-    track_files = glob.glob('./*.track')
+    track_files = glob.glob('./torrents/*.track')
     reply_msg = 'REP LIST %s\n' % len(track_files)
     file_num = 0
     for t_file in range(len(track_files)):
@@ -140,13 +141,13 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
     # Ensure the file name ends with '.track' extension.
     if re.match('[^ ]*\.[\w]+\Z', f_name):
         if not re.match('[^ ]+\.track\Z', f_name):
-            f_track = re.sub("\.[\w]+\Z", '.track', f_name)
+            f_track = './torrents/' + re.sub("\.[\w]+\Z", '.track', f_name)
         else:
-            f_track = f_name
+            f_track = './torrents/' + f_name
     else:
-        f_track = f_name + ".track"
+        f_track = './torrents/' + f_name + ".track"
     # Modify and rewrite file with new information.
-    if os.path.isfile('./%s' % f_track):
+    if os.path.isfile('.%s' % f_track):
         try:
             with open(f_track, 'rt') as f:
                 old_pattern = '%s:%s:[^:]+:[^:]+:[\w]+' % (ip_addr, port_num)
@@ -182,29 +183,34 @@ def createtracker(f_name, f_size, desc, md5, ip_addr, port_num):
         Returns the reply string to send back to the client.
     """
     # Changes file extension to .track
+    print('Matched createtracker')
     if re.match('.*\.[\w]+\Z', f_name):
         if not re.match('.*\.track\Z', f_name):
-            f_track = re.sub('\.[\w]+\Z', '.track', f_name)
+            f_track = './torrents/' + re.sub('\.[\w]+\Z', '.track', f_name)
         else:  # file already has .track extension
-            f_track = f_name
+            f_track = './torrents/' + f_name
     else:  # appends .track if no given file extension
-        f_track = f_name + ".track"
+        f_track = './torrents/' + f_name + ".track"
 
     if os.path.isfile('./%s' % f_track):
         # File already exists
         reply_out = 'createtracker ferr\n'
     else:
-        with open(f_track, 'wt') as f:
-            f.write('Filename: %s\n' % f_track)
-            f.write('Filesize: %s\n' % f_size)
-            f.write('Description: %s\n' % desc)
-            f.write('MD5: %s\n' % md5)
-            f.write('# all comments must begin with # and must be ignored by the file parser\n'
-                    '# following the above fields about file to be shared will be list of peers '
-                    'sharing this file\n')
-            timestamp = time.time()
-            f.write('%s:%s:0:%s:%s' % (ip_addr, port_num, f_size, timestamp))
-        reply_out = 'createtracker succ\n'
+        try:
+            with open(f_track, 'wt') as f:
+                f.write('Filename: %s\n' % f_name)
+                f.write('Filesize: %s\n' % f_size)
+                f.write('Description: %s\n' % desc)
+                f.write('MD5: %s\n' % md5)
+                f.write('# all comments must begin with # and must be ignored by the file parser\n'
+                        '# following the above fields about file to be shared will be list of peers '
+                        'sharing this file\n')
+                timestamp = time.time()
+                f.write('%s:%s:0:%s:%s' % (ip_addr, port_num, f_size, timestamp))
+            reply_out = 'createtracker succ\n'
+        except FileNotFoundError:
+            reply_out = 'createtracker ferr\n'
+            print('[Err] No such file or directory: \'%s\'' % f_track)
     return reply_out
 
 
