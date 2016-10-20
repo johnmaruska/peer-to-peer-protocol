@@ -1,6 +1,7 @@
 import os, sys
 import socket
 import hashlib
+#import socketserver
 #Rewrite the whole socketserver
 
 
@@ -26,7 +27,7 @@ def split_file(filename, number_of_file):
         os.mkdir(folder_name)
     with open(filename, "rb") as f:
         n = size // number_of_file
-        os.chdir("./temp/")
+        os.chdir(folder_name)
         for i in range(0, number_of_file):
             if i == 2:
                 readsize = size - (number_of_file - 1) * n
@@ -100,6 +101,5 @@ if __name__ == "__main__":
     client, addr = server.accept()
     print("Got a connection from %s" % str(addr))
     handle(client)
-
 
 
