@@ -14,10 +14,22 @@ sock.connect((HOST, PORT))
 print ("connect!")
 # Receive data from the server and shut down
 count = 0
+
+'''
 # Receive Filename
 file_name = sock.recv(1024)
 file_name = file_name.decode('utf-8')
 print (file_name)
+'''
+file_name = input("File you wanna get:")
+sock.send(file_name.encode())
+if not os.path.exists("./temp_client"):
+    os.mkdir("./temp_client/")
+else:
+    clearfile = os.listdir("./temp_client/")
+    print(clearfile)
+    for s in clearfile:
+        os.remove("./temp_client/" + s)
 #Receive Segment length
 stri = sock.recv(1024)
 stri = stri.decode('utf-8')
@@ -31,6 +43,7 @@ while count < segment_length:
         sock.send(command.encode())
         print(command)
         received = sock.recv(4096)
+        print(received)
         filesize = int(received.decode('utf-8'))
         total = 0
         print(filesize)
@@ -46,8 +59,10 @@ while count < segment_length:
         if nth_segment >= segment_length:
             nth_segment = 0
 sock.send("FINISH".encode())
+#check if directory exists, if so, clear all the file in the temp_client folder,
+#if not, create the folder
 os.chdir("./temp_client/")
-filelist = os.listdir()
+filelist = os.listdir(".")
 with open(file_name, "wb") as f:
     for name in filelist:
         input = open(name, "rb")
