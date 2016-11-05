@@ -14,7 +14,7 @@ import time
 # TODO: Fix message structure to include '<' '>' '\n' characters.
 def main():
     host = 'localhost'
-    port = 9999
+    port = 60000
     welcome = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     welcome.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     welcome.bind((host, port))
@@ -154,6 +154,7 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 timestamp = int(round(time.time()))
                 new_pattern = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
                 new_contents = []
+                # Check each line or matching IP and port number
                 for line in f:
                     if re.match(old_pattern, line):
                         new_line = re.sub(old_pattern, new_pattern, line)

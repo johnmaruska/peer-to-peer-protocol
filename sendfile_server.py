@@ -1,7 +1,9 @@
 import os, sys
 import socket
-import subprocess
+import hashlib
+#import socketserver
 #Rewrite the whole socketserver
+
 
 def split_file(filename, number_of_file):
     '''
@@ -20,12 +22,15 @@ def split_file(filename, number_of_file):
     '''
     #Make split function irrelevant to OS
     size = os.path.getsize(filename)
+    folder_name = hashlib.sha224(filename.encode()).hexdigest()
+    if not os.path.exists("./" + folder_name):
+        os.mkdir(folder_name)
     with open(filename, "rb") as f:
         n = size // number_of_file
-        os.chdir("./temp/")
+        os.chdir(folder_name)
         for i in range(0, number_of_file):
             if i == 2:
-                readsize = size - (number_of_file-1) * n
+                readsize = size - (number_of_file - 1) * n
             else:
                 readsize = n
             input = open("input" + str(i), "wb")
@@ -46,16 +51,20 @@ def handle(sock):
         REQUEST [number]
         FINISH
     '''
+    '''
     # split file
     filename = "a.jpg"
     filelist = split_file(filename, 10)
     sock.send(filename.encode())
     print("split files")
+    '''
+    stri = sock.recv(1024)
+    filename = stri.decode()
+    filelist = split_file(filename, 10)
     segment_number = len(filelist)
     print (segment_number)
     msg = "SEGMENT " + str(segment_number)
     sock.send(msg.encode())
-
     nth_segment = 0
     # split the file & Send
     while True:
@@ -89,9 +98,6 @@ if __name__ == "__main__":
     server = socket.socket()
     server.bind((HOST, PORT))
     server.listen(10)
-    client ,addr = server.accept()
+    client, addr = server.accept()
     print("Got a connection from %s" % str(addr))
     handle(client)
-
-
-

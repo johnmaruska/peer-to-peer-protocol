@@ -21,9 +21,9 @@ class PeerServer:
         # TODO: wrap these in try blocks ?
         self.welcome = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.welcome.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.welcome.bind((socket.gethostname(), self.port))
+        self.welcome.bind((self.host, self.port))
 
-    def listen_to_client(self, client):
+    def listen_to_client(self, client, address):
         try:
             while True:
                 # TODO: receive messages and send data
@@ -51,13 +51,12 @@ class PeerServer:
             client.close()
 
     def listen(self):
-        self.welcome.listen(5)  # 5 maximum clients connected to each Peer.
-        accepting = True
-        while accepting:
+        while True:
+            self.welcome.listen(5)  # 5 maximum clients connected to each Peer.
             client, address = self.welcome.accept()
             # creates a new thread for each client that joins in
             threading.Thread(target=self.listen_to_client, args=(client, address)).start()
-            
+
     def quit(self):
         # TODO: Remove files from temporary folder.
         # TODO: Close all connected sockets
@@ -83,9 +82,9 @@ class PeerServer:
 
 def main():
     this_host = 'localhost'  # this system hostname
-    this_port = 8888  # this system port number
-    ts_host = '127.0.0.1'
-    ts_port = 9999
+    this_port = 62000  # this system port number
+    ts_host = 'localhost'
+    ts_port = 60000
     cmd_q = queue.Queue()
     ps = PeerServer(this_host, this_port)
     try:
@@ -171,19 +170,17 @@ def cmd_tracker(server, cmd_q):
             print("Improper arguments. GET requires a [filename].track")
     elif next_cmd == 'REQ LIST':
         msg = "REQ LIST\n"
-    
+
     msg += ";endTCPmessage"
-    
+
     if len(msg) > 0:
         msg = msg.encode("utf-8")
         server.sendall(msg)
-        
 
-def download_file():  # (filename) # Shifted sendfile_client.py into this function.
+
+def download_file(host, port: int):  # (filename) # Shifted sendfile_client.py into this function.
     # TODO: call GET, parse results, assign IP and port
     # get(filename)
-    host = '127.0.0.1'
-    port = 8888
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.connect((host, port))
     file_name = server.recv(1024).decode('utf-8')
@@ -200,7 +197,8 @@ def download_file():  # (filename) # Shifted sendfile_client.py into this functi
             filesize = int(received.decode('utf-8'))
             total = 0
             while True:
-                if total >= filesize: break
+                if total >= filesize:
+                    break
                 received = server.recv(4096)
                 output.write(received)
                 total += len(received)
@@ -210,7 +208,7 @@ def download_file():  # (filename) # Shifted sendfile_client.py into this functi
                 nth_segment = 0
     server.send('FINISH'.encode())
     os.chdir('./temp_client/')
-    filelist = os.listdir()
+    filelist = os.listdir('.')
     with open(file_name, 'wb') as f:
         for name in filelist:
             file_input = open(name, 'rb')
@@ -249,7 +247,18 @@ def recv_from_tracker(server: socket.socket):
                 total_msg[-2] = last_pair[:last_pair.find(end_marker)]
                 total_msg.pop()
                 break
-    print(''.join(total_msg))
+    server_response = ''.join(total_msg)
+    print(server_response)
+    server_response = server_response.split('\n')
+    if server_response[0] == 'REP GET BEGIN':
+        for line in server_response:
+            # (ip_addr:port_num:start_byte:end_byte:time
+            m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
+            if m:
+                ip_addr = m.group(1)
+                port_num = int(m.group(2))
+                download_file(ip_addr, port_num)
+                break
     print('recv_from_tracker exited')  # TODO: Remove post-debugging
         
 if __name__ == "__main__":

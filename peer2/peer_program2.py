@@ -3,7 +3,7 @@
     Handles both client and server portions of peer terminal.
 """
 
-import math
+import hashlib
 import os
 import random
 import re
@@ -25,23 +25,33 @@ class PeerServer:
 
     def listen_to_client(self, client, address):
         try:
+            # filename = client.recv(1024).decode()
+            filename = recv_from(client)
+            filelist = split_file(filename, 10)
+            segment_number = len(filelist)
+            print(segment_number)
+            msg = "SEGMENT " + str(segment_number)
+            # client.send(msg.encode())
+            encode_and_send(client, msg)
+            nth_segment = 0
             while True:
                 # TODO: receive messages and send data
-                res = client.recv(1024).decode('utf-8')
+                # res = client.recv(1024)
+                res = recv_from(client)
                 print(res)
-                if res == 'FINISH':  # Disconnect when finished sending.
-                    client.close()
+                res = res.decode('utf-8')
+                if res == "FINISH":
                     break
-                if res.split(' ')[0] == 'REQUEST':  # Send requested segment
-                    # Don't have a filelist. Need solution.
-                    # TODO: Change client side to send request in form REQUEST filename.ext #
-                    file_name = res.split(' ')[1]
-                    segment = res.split(' ')[2]
-                    file_name = re.sub("\.[\w]+\Z", '', file_name)
-                    file_seg = file_name + segment
-                    file_size = str(os.path.getsize(file_seg))
-                    client.send(file_size.encode('utf-8'))
-                    output = open(file_seg, 'rb')
+                if res.split(' ')[0] == "REQUEST":
+                    res_list = res.split(' ')
+                    print(int(res_list[1]))
+                    print("Send File" + res_list[1])
+                    # FILE SIZE
+                    file_size = os.path.getsize(filelist[int(res_list[1])])
+                    file_size = str(file_size)
+                    # client.send(file_size.encode())
+                    encode_and_send(client, file_size)
+                    output = open(filelist[int(res_list[1])], "rb")
                     l = output.read(4096)
                     while l:
                         client.send(l)
@@ -62,27 +72,10 @@ class PeerServer:
         # TODO: Close all connected sockets
         self.welcome.close()
 
-    def split_file(self, file_name, segment_size):
-        # Make split function irrelevant to OS
-        total_size = os.path.getsize(file_name)
-        file_list = []
-        with open(file_name, "rb") as f:
-            total_segments = math.ceil(total_size / segment_size)
-            for i in range(0, total_segments):
-                if i == 2:
-                    readsize = total_size - (total_segments - 1) * segment_size
-                else:
-                    readsize = segment_size
-                file_i = open("input" + str(i), "wb")
-                file_i.write(f.read(readsize))
-                file_i.close()
-                file_list.append(file_i)
-        return file_list
-
 
 def main():
     this_host = 'localhost'  # this system hostname
-    this_port = 61000  # this system port number
+    this_port = 62000  # this system port number
     ts_host = 'localhost'
     ts_port = 60000
     cmd_q = queue.Queue()
@@ -128,6 +121,7 @@ def cmd_tracker(server, cmd_q):
     next_cmd = cmd_q.get()
     print(next_cmd)   # TODO: Remove post-debugging
     if re.match('createtracker .*', next_cmd):
+        # createtracker filename filesize description md5 ip_addr port_num
         m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
                      ' ([^ ]+)', next_cmd)
         try:
@@ -139,6 +133,7 @@ def cmd_tracker(server, cmd_q):
             port_num = m.group(7)
             msg = "createtracker %s %s %s %s %s %s\n" % (filename, filesize, desc, md5,
                                                          ip_addr, port_num)
+            split_file(filename, 10)  # Said maximum chunk size 1KB?
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
                   'createtracker [filename] [filesize] [description] [md5] [ip-address] '
@@ -178,38 +173,77 @@ def cmd_tracker(server, cmd_q):
         server.sendall(msg)
 
 
-def download_file(host, port: int):  # (filename) # Shifted sendfile_client.py into this function.
+def split_file(filename, number_of_file):
+    # Make split function irrelevant to OS#Make split function irrelevant to OS
+    size = os.path.getsize(filename)
+    folder_name = hashlib.sha224(filename.encode()).hexdigest()
+    if not os.path.exists("./" + folder_name):
+        os.mkdir(folder_name)
+    with open(filename, "rb") as f:
+        n = size // number_of_file
+        os.chdir(folder_name)
+        for i in range(0, number_of_file):
+            if i == number_of_file - 1:
+                readsize = size - (number_of_file - 1) * n
+            else:
+                readsize = n
+            input = open("input" + str(i), "wb")
+            input.write(f.read(readsize))
+            input.close()
+    filelist = os.listdir('.')
+    return filelist
+
+
+def download_file(host, port: int, original_filename):  # (filename) # Shifted sendfile_client.py into this function.
     # TODO: call GET, parse results, assign IP and port
-    # get(filename)
+    print('Downloading file.')
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.connect((host, port))
-    file_name = server.recv(1024).decode('utf-8')
-    stri = server.recv(1024).decode('utf-8')
-    segment_length = int(stri.split(' ')[1])
+    encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
+    # How does the server know to send this information?
+    # file_name = server.recv(1024).decode('utf-8')
+    if not os.path.exists("./temp_client"):
+        os.mkdir("./temp_client/")
+    else:
+        clearfile = os.listdir("./temp_client/")
+        print(clearfile)
+        for s in clearfile:
+            os.remove("./temp_client/" + s)
+    segment_name = recv_from(server)
+    segment_length = int(segment_name.split(' ')[1])
+    print('file_name: %s' % segment_name)
+    # stri = server.recv(1024).decode('utf-8')
+
+    print('Segment Length: %s' % segment_length)
     nth_segment = random.randint(0, segment_length-1)
     count = 0
     while count < segment_length:
+        print('Segment count: %s' % count)
         filename = 'temp_client/output' + str(nth_segment)
         with open(filename, 'wb') as output:
-            command = 'REQUEST' + file_name + str(nth_segment)
-            server.send(command.encode())
-            received = server.recv(4096)
-            filesize = int(received.decode('utf-8'))
+            print('Writing to %s' % filename)
+            command = 'REQUEST %s' % str(nth_segment)
+            encode_and_send(server, command)
+            # received = server.recv(4096)
+            received = recv_from(server)
+            filesize = int(received)
             total = 0
             while True:
                 if total >= filesize:
                     break
                 received = server.recv(4096)
+                # received = recv_from(server)
                 output.write(received)
                 total += len(received)
             count += 1
             nth_segment += 1
             if nth_segment >= segment_length:
                 nth_segment = 0
-    server.send('FINISH'.encode())
+    encode_and_send(server, 'FINISH')
     os.chdir('./temp_client/')
     filelist = os.listdir('.')
-    with open(file_name, 'wb') as f:
+    with open(original_filename, 'wb') as f:
+        print('Writing to %s' % original_filename)
         for name in filelist:
             file_input = open(name, 'rb')
             f.write(file_input.read())
@@ -230,6 +264,25 @@ def track_comm(host: str, port: int, cmd_q: queue.Queue):
 
 def recv_from_tracker(server: socket.socket):
     print("recv_from_tracker entered")  # TODO: Remove post-debug
+    server_response = recv_from(server)
+    print(server_response)
+    server_response = server_response.split('\n')
+    if server_response[0] == 'REP GET BEGIN':
+        for line in server_response:
+            if 'Filename: ' in line:
+                filename = line.lstrip('Filename: ')
+            # (ip_addr:port_num:start_byte:end_byte:time
+            m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
+            if m:
+                ip_addr = m.group(1)
+                port_num = int(m.group(2))
+                print('Match found: %s %s' % (ip_addr, port_num))
+                download_file(ip_addr, port_num, filename)
+                break
+    print('recv_from_tracker exited')  # TODO: Remove post-debugging
+
+
+def recv_from(server: socket.socket):
     end_marker = ";endTCPmessage"
     total_msg = []
     while True:
@@ -242,24 +295,18 @@ def recv_from_tracker(server: socket.socket):
         # TODO: Weird section. Supposed to handle split msg, not sure how it works
         if len(total_msg) > 1:
             # check if end of msg was split
-            last_pair = total_msg[-2]+total_msg[-1]
+            last_pair = total_msg[-2] + total_msg[-1]
             if end_marker in last_pair:
                 total_msg[-2] = last_pair[:last_pair.find(end_marker)]
                 total_msg.pop()
                 break
-    server_response = ''.join(total_msg)
-    print(server_response)
-    server_response = server_response.split('\n')
-    if server_response[0] == 'REP GET BEGIN':
-        for line in server_response:
-            # (ip_addr:port_num:start_byte:end_byte:time
-            m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
-            if m:
-                ip_addr = m.group(1)
-                port_num = int(m.group(2))
-                download_file(ip_addr, port_num)
-                break
-    print('recv_from_tracker exited')  # TODO: Remove post-debugging
-        
+    return ''.join(total_msg)
+
+
+def encode_and_send(client: socket.socket, msg: str):
+    msg += ';endTCPmessage'
+    client.send(msg.encode('utf-8'))
+
+
 if __name__ == "__main__":
     sys.exit(main())
