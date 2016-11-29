@@ -75,7 +75,7 @@ def listen_to_client(client):
             reply_out = req_list()
             client.send(reply_out.encode('utf-8'))
         # Check for and execute GET command
-        if re.match('GET .*\\n$', cmd_in):
+        if re.match('GET .*\..*', cmd_in):
             m = re.match('GET ([^ ]+\.track)', cmd_in)
             try:
                 tracker_file = m.group(1)

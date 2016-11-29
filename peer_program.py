@@ -160,14 +160,8 @@ def cmd_tracker(server, cmd_q):
                   '[port-number]')
 
     elif re.match('GET .*', next_cmd):
-        m = re.match('GET ([^ ]+\.track)', next_cmd)
-        try:
-            filename = m.group(1)
-            msg = "GET %s\n" % filename
-            # TODO: Check contained md5 with protocol md5 for correctness.
-            #
-        except AttributeError:
-            print("Improper arguments. GET requires a [filename].track")
+        msg = next_cmd
+        
     elif next_cmd == 'REQ LIST':
         msg = "REQ LIST\n"
 
