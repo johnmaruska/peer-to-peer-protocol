@@ -34,59 +34,57 @@ def listen(welcome: socket.socket):
 
 def listen_to_client(client):
     try:
-        while True:
-            # receive command
-            cmd_in = recv_msg(client)
-            # Check for and execute createtracker command
-            if re.match("createtracker .*", cmd_in):
-                try:
-                    # grab the arguments of the createtracker command.
-                    # ("*") allows description to contain spaces; others space limited
-                    m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
-                                 ' ([^ ]+)', cmd_in)
-                    f_name = m.group(2)
-                    f_size = m.group(3)
-                    desc = m.group(4)
-                    md5 = m.group(5)
-                    ip_addr = m.group(6)
-                    port_num = m.group(7).strip('\n')
-                    reply_out = createtracker(f_name, f_size, desc, md5, ip_addr, port_num)
-                    reply_out += ';endTCPmessage'
-                    client.send(reply_out.encode('utf-8'))
-                except (IndexError, AttributeError):
-                    reply_out = 'createtracker fail\n'
-                    client.send(reply_out.encode('utf-8'))
-            # Check for and execute updatetracker command
-            if re.match('updatetracker .*', cmd_in):
-                try:
-                    m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', cmd_in)
-                    f_name = m.group(2)
-                    start_bytes = m.group(3)
-                    end_bytes = m.group(4)
-                    ip_addr = m.group(5)
-                    port_num = m.group(6).strip('\n')
-                    reply_out = updatetracker(f_name, start_bytes, end_bytes, ip_addr, port_num)
-                    reply_out += ";endTCPmessage"
-                    client.send(reply_out.encode('utf-8'))
-                except (IndexError, AttributeError):
-                    reply_out = 'updatetracker fail\n'
-                    client.send(reply_out.encode('utf-8'))
-            # Check for and execute REQ LIST command
-            if cmd_in == 'REQ LIST\n':
-                reply_out = req_list()
-                client.send(reply_out.encode('utf-8'))
-            # Check for and execute GET command
-            if re.match('GET .*\\n$', cmd_in):
-                m = re.match('GET ([^ ]+\.track)', cmd_in)
-                try:
-                    tracker_file = m.group(1)
-                    reply_out = get(tracker_file)
-                except AttributeError:
-                    reply_out = cmd_in.strip('\n') + ' does not request a .track file.'
+        # receive command
+        cmd_in = recv_msg(client)
+        # Check for and execute createtracker command
+        if re.match("createtracker .*", cmd_in):
+            try:
+                # grab the arguments of the createtracker command.
+                # ("*") allows description to contain spaces; others space limited
+                m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
+                             ' ([^ ]+)', cmd_in)
+                f_name = m.group(2)
+                f_size = m.group(3)
+                desc = m.group(4)
+                md5 = m.group(5)
+                ip_addr = m.group(6)
+                port_num = m.group(7).strip('\n')
+                reply_out = createtracker(f_name, f_size, desc, md5, ip_addr, port_num)
                 reply_out += ';endTCPmessage'
                 client.send(reply_out.encode('utf-8'))
-
-    except KeyboardInterrupt:
+            except (IndexError, AttributeError):
+                reply_out = 'createtracker fail\n'
+                client.send(reply_out.encode('utf-8'))
+        # Check for and execute updatetracker command
+        if re.match('updatetracker .*', cmd_in):
+            try:
+                m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', cmd_in)
+                f_name = m.group(2)
+                start_bytes = m.group(3)
+                end_bytes = m.group(4)
+                ip_addr = m.group(5)
+                port_num = m.group(6).strip('\n')
+                reply_out = updatetracker(f_name, start_bytes, end_bytes, ip_addr, port_num)
+                reply_out += ";endTCPmessage"
+                client.send(reply_out.encode('utf-8'))
+            except (IndexError, AttributeError):
+                reply_out = 'updatetracker fail\n'
+                client.send(reply_out.encode('utf-8'))
+        # Check for and execute REQ LIST command
+        if cmd_in == 'REQ LIST\n':
+            reply_out = req_list()
+            client.send(reply_out.encode('utf-8'))
+        # Check for and execute GET command
+        if re.match('GET .*\\n$', cmd_in):
+            m = re.match('GET ([^ ]+\.track)', cmd_in)
+            try:
+                tracker_file = m.group(1)
+                reply_out = get(tracker_file)
+            except AttributeError:
+                reply_out = cmd_in.strip('\n') + ' does not request a .track file.'
+            reply_out += ';endTCPmessage'
+            client.send(reply_out.encode('utf-8'))
+    finally:
         client.close()
 
 
@@ -102,10 +100,11 @@ def get(tracker):
                     md5 = line.split(' ')[1]
         reply += '\nREP GET END'
         if md5 != '':
-            reply += (' %s\n' % md5)
+            reply += (' %s' % md5)
     except FileNotFoundError:
         reply = 'ERROR: Could not GET. File %s not found.' % tracker
-    return reply
+    finally:
+        return reply
 
 
 def req_list():
@@ -147,9 +146,11 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
     else:
         f_track = './torrents/' + f_name + ".track"
     # Modify and rewrite file with new information.
-    if os.path.isfile('.%s' % f_track):
+    if os.path.isfile(f_track):
+        print("File found.")
         try:
             with open(f_track, 'rt') as f:
+                entry_found = False
                 old_pattern = '%s:%s:[^:]+:[^:]+:[\w]+' % (ip_addr, port_num)
                 timestamp = int(round(time.time()))
                 new_pattern = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
@@ -158,19 +159,23 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 for line in f:
                     if re.match(old_pattern, line):
                         new_line = re.sub(old_pattern, new_pattern, line)
-                        print(new_line)
                         new_contents.append(new_line)
+                        entry_found = True
                     else:
-                        print('Did not match new pattern')
                         new_contents.append(line)
+                if not entry_found:  # TODO: Needs testing
+                    new_line = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
+                    new_contents.append(new_line)
             print(new_contents)
             with open(f_track, 'wt') as f:
                 for line in new_contents:
                     f.write(line)
-
             reply_out = 'updatetracker succ\n'
         except FileNotFoundError:
             reply_out = 'updatetracker fail\n'
+        except Exception as e:
+            print("Unexpected exception: %s" % e)
+            raise e
     else:
         reply_out = 'updatetracker ferr\n'
 
@@ -207,7 +212,7 @@ def createtracker(f_name, f_size, desc, md5, ip_addr, port_num):
                         '# following the above fields about file to be shared will be list of peers '
                         'sharing this file\n')
                 timestamp = time.time()
-                f.write('%s:%s:0:%s:%s' % (ip_addr, port_num, f_size, timestamp))
+                f.write('%s:%s:0:%s:%s\n' % (ip_addr, port_num, f_size, timestamp))
             reply_out = 'createtracker succ\n'
         except FileNotFoundError:
             reply_out = 'createtracker ferr\n'
@@ -228,6 +233,10 @@ def recv_msg(client: socket.socket):
             print(type(msg))
             print(type(end_marker))
             raise
+        except ConnectionResetError:
+            print("ConnectionResetError: An existing connection was forcibly closed by the remote host.")
+            print(client)
+            return "ConnectionResetError"
         total_msg.append(msg)
         if len(total_msg) > 1:
             # check if end of msg was split

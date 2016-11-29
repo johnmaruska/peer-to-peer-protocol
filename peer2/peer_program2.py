@@ -25,27 +25,20 @@ class PeerServer:
 
     def listen_to_client(self, client, address):
         try:
-            # filename = client.recv(1024).decode()
-            filename = recv_from(client)
+            filename = recv_from(client).lstrip('REQUEST ')
             filelist = split_file(filename, 10)
             segment_number = len(filelist)
-            print(segment_number)
             msg = "SEGMENT " + str(segment_number)
-            # client.send(msg.encode())
             encode_and_send(client, msg)
-            nth_segment = 0
             while True:
                 # TODO: receive messages and send data
-                # res = client.recv(1024)
                 res = recv_from(client)
-                print(res)
-                res = res.decode('utf-8')
                 if res == "FINISH":
                     break
                 if res.split(' ')[0] == "REQUEST":
                     res_list = res.split(' ')
                     print(int(res_list[1]))
-                    print("Send File" + res_list[1])
+                    print("Send File " + res_list[1])
                     # FILE SIZE
                     file_size = os.path.getsize(filelist[int(res_list[1])])
                     file_size = str(file_size)
@@ -57,16 +50,23 @@ class PeerServer:
                         client.send(l)
                         l = output.read(4096)
                     output.close()
+        except ConnectionResetError:
+            print("ConnectionResetError: Connection forcibly closed by remote host.")
+        except Exception as e:
+            print("Unexpected exception: %s" % e)
+            raise e
         finally:
             client.close()
 
     def listen(self):
+        self.welcome.listen(5)
         while True:
-            self.welcome.listen(5)  # 5 maximum clients connected to each Peer.
-            client, address = self.welcome.accept()
-            # creates a new thread for each client that joins in
-            threading.Thread(target=self.listen_to_client, args=(client, address)).start()
-
+            try:
+                (client, address) = self.welcome.accept()
+                # creates a new thread for each client that joins in
+                threading.Thread(target=self.listen_to_client, args=(client,address)).start()
+            except Exception as e:
+                pass
     def quit(self):
         # TODO: Remove files from temporary folder.
         # TODO: Close all connected sockets
@@ -75,7 +75,7 @@ class PeerServer:
 
 def main():
     this_host = 'localhost'  # this system hostname
-    this_port = 62000  # this system port number
+    this_port = 61000  # this system port number
     ts_host = 'localhost'
     ts_port = 60000
     cmd_q = queue.Queue()
@@ -94,8 +94,10 @@ def main():
             pass
     except RuntimeError:
         print("ERROR: Could not start all threads.")
-
-    ps.quit()
+    finally:
+        # TODO: Check and see if killing threads or otherwise stopping them 
+        # is a possibility and required here.
+        ps.quit()
 
 
 def commands(cmd_q):
@@ -133,7 +135,10 @@ def cmd_tracker(server, cmd_q):
             port_num = m.group(7)
             msg = "createtracker %s %s %s %s %s %s\n" % (filename, filesize, desc, md5,
                                                          ip_addr, port_num)
-            split_file(filename, 10)  # Said maximum chunk size 1KB?
+            if os.path.isfile(filename):
+                split_file(filename, 10)  # Said maximum chunk size 1KB?
+            else:
+                print("Cannot create tracker. This file does not exist.")
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
                   'createtracker [filename] [filesize] [description] [md5] [ip-address] '
@@ -175,7 +180,13 @@ def cmd_tracker(server, cmd_q):
 
 def split_file(filename, number_of_file):
     # Make split function irrelevant to OS#Make split function irrelevant to OS
-    size = os.path.getsize(filename)
+    try:
+        size = os.path.getsize(filename)
+    except FileNotFoundError:  # Sometimes randomly doesn't find the file - try again.
+        try:
+            size = os.path.getsize(filename)
+        except FileNotFoundError:
+            print("FileNotFoundError: The system cannot find the file specified: %s" % filename)
     folder_name = hashlib.sha224(filename.encode()).hexdigest()
     if not os.path.exists("./" + folder_name):
         os.mkdir(folder_name)
@@ -194,12 +205,13 @@ def split_file(filename, number_of_file):
     return filelist
 
 
-def download_file(host, port: int, original_filename):  # (filename) # Shifted sendfile_client.py into this function.
+def download_file(host: str, port: int, original_filename): # (filename) # Shifted sendfile_client.py into this function.
     # TODO: call GET, parse results, assign IP and port
     print('Downloading file.')
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.connect((host, port))
     encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
+    print("REQUEST %s" % original_filename)
     # How does the server know to send this information?
     # file_name = server.recv(1024).decode('utf-8')
     if not os.path.exists("./temp_client"):
@@ -211,10 +223,6 @@ def download_file(host, port: int, original_filename):  # (filename) # Shifted s
             os.remove("./temp_client/" + s)
     segment_name = recv_from(server)
     segment_length = int(segment_name.split(' ')[1])
-    print('file_name: %s' % segment_name)
-    # stri = server.recv(1024).decode('utf-8')
-
-    print('Segment Length: %s' % segment_length)
     nth_segment = random.randint(0, segment_length-1)
     count = 0
     while count < segment_length:
@@ -251,16 +259,17 @@ def download_file(host, port: int, original_filename):  # (filename) # Shifted s
 
 
 def track_comm(host: str, port: int, cmd_q: queue.Queue):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.connect((host, port))
-    try:
-        while True:
-            cmd_tracker(server, cmd_q)
-            recv_from_tracker(server)
-    except KeyboardInterrupt:
-        print("track_comm except KeyboardInterrupt entered")  # TODO: Remove post-debug
-        server.close()
-
+    while True:
+        try:
+            if not cmd_q.empty():
+                server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                server.connect((host, port))
+                cmd_tracker(server, cmd_q)
+                recv_from_tracker(server)
+                server.close()
+        except ConnectionRefusedError:
+            print("ConnectionRefusedError: Tracking server currently down. Try again later.")
+            break
 
 def recv_from_tracker(server: socket.socket):
     print("recv_from_tracker entered")  # TODO: Remove post-debug
