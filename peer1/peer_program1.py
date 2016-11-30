@@ -64,7 +64,7 @@ class PeerServer:
             try:
                 (client, address) = self.welcome.accept()
                 # creates a new thread for each client that joins in
-                threading.Thread(target=self.listen_to_client, args=(client,address)).start()
+                threading.Thread(target=self.listen_to_client, args=(client, address)).start()
             except Exception as e:
                 pass
     def quit(self):
@@ -196,6 +196,9 @@ def split_file(filename, number_of_file):
             input.write(f.read(readsize))
             input.close()
     filelist = os.listdir('.')
+    for i in range(0, len(filelist)):
+        filelist[i] = folder_name + "/" + filelist[i]
+    os.chdir("../")
     return filelist
 
 
@@ -206,22 +209,23 @@ def download_file(host: str, port: int, original_filename): # (filename) # Shift
     server.connect((host, port))
     encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
     print("REQUEST %s" % original_filename)
+    folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
     # How does the server know to send this information?
     # file_name = server.recv(1024).decode('utf-8')
-    if not os.path.exists("./temp_client"):
-        os.mkdir("./temp_client/")
+    if not os.path.exists(folder_name):
+        os.mkdir(folder_name)
     else:
-        clearfile = os.listdir("./temp_client/")
+        clearfile = os.listdir(folder_name)
         print(clearfile)
         for s in clearfile:
-            os.remove("./temp_client/" + s)
+            os.remove(folder_name + s)
     segment_name = recv_from(server)
     segment_length = int(segment_name.split(' ')[1])
     nth_segment = random.randint(0, segment_length-1)
     count = 0
     while count < segment_length:
         print('Segment count: %s' % count)
-        filename = 'temp_client/output' + str(nth_segment)
+        filename = folder_name + 'output' + str(nth_segment)
         with open(filename, 'wb') as output:
             print('Writing to %s' % filename)
             command = 'REQUEST %s' % str(nth_segment)
@@ -242,15 +246,15 @@ def download_file(host: str, port: int, original_filename): # (filename) # Shift
             if nth_segment >= segment_length:
                 nth_segment = 0
     encode_and_send(server, 'FINISH')
-    os.chdir('./temp_client/')
-    filelist = os.listdir('.')
+    filelist = os.listdir(folder_name)
     with open(original_filename, 'wb') as f:
         print('Writing to %s' % original_filename)
         for name in filelist:
+            name = folder_name + name
             file_input = open(name, 'rb')
             f.write(file_input.read())
             file_input.close()
-
+    
 
 def track_comm(host: str, port: int, cmd_q: queue.Queue):
     while True:
@@ -274,13 +278,14 @@ def recv_from_tracker(server: socket.socket):
         for line in server_response:
             if 'Filename: ' in line:
                 filename = line.lstrip('Filename: ')
+                
             # (ip_addr:port_num:start_byte:end_byte:time
             m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
             if m:
                 ip_addr = m.group(1)
                 port_num = int(m.group(2))
                 print('Match found: %s %s' % (ip_addr, port_num))
-                download_file(ip_addr, port_num, filename)
+                threading.Thread(target=download_file, args=(ip_addr, port_num, filename)).start()
                 break
     print('recv_from_tracker exited')  # TODO: Remove post-debugging
 
