@@ -67,19 +67,22 @@ class PeerServer:
                 threading.Thread(target=self.listen_to_client, args=(client, address)).start()
             except Exception as e:
                 pass
+
     def quit(self):
         # TODO: Remove files from temporary folder.
         # TODO: Close all connected sockets
         self.welcome.close()
 
 
+THIS_HOST = 'localhost'  # this system hostname
+THIS_PORT = 61000  # this system port number
+
+
 def main():
-    this_host = 'localhost'  # this system hostname
-    this_port = 61000  # this system port number
     ts_host = 'localhost'
     ts_port = 60000
     cmd_q = queue.Queue()
-    ps = PeerServer(this_host, this_port)
+    ps = PeerServer(THIS_HOST, THIS_PORT)
     try:
         # Peer functions as a server for other peer-clients
         ps_t = threading.Thread(target=ps.listen)
@@ -108,14 +111,34 @@ def commands(cmd_q):
             try:
                 cmd_args = re.match('^([^ ]+) (.*)', cmd)
                 accepted_commands = ['createtracker', 'updatetracker', 'GET']
-                if cmd_args.group(1) in accepted_commands:
-                    cmd_q.put(cmd)
-                elif re.match('REQ LIST', cmd):
+                if cmd == 'REQ LIST' or cmd == 'LIST':
                     cmd_q.put('REQ LIST')
+                elif cmd_args.group(1) in accepted_commands:
+                    cmd_q.put(cmd)
             except AttributeError:
                 print('Not a valid command.')
     except KeyboardInterrupt:
         pass
+
+
+
+def hashfile(afile, blocksize=65536):
+    buf = afile.read(blocksize)
+    while len(buf) > 0:
+        hashlib.md5().update(buf)
+        buf = afile.read(blocksize)
+    return hashlib.md5().hexdigest()
+
+
+def createtracker(filename, desc):
+    if os.path.isfile(filename):
+        size = os.path.getsize(filename)
+        md5 = hashfile(open(filename, 'rb'))
+        ip = THIS_HOST
+        port = THIS_PORT
+        return 'createtracker %s %s %s %s %s %s' % (filename, size, desc, md5, ip, port)
+    else:
+        return 'createtracker fail'
 
 
 def cmd_tracker(server, cmd_q):
@@ -123,26 +146,19 @@ def cmd_tracker(server, cmd_q):
     next_cmd = cmd_q.get()
     print(next_cmd)   # TODO: Remove post-debugging
     if re.match('createtracker .*', next_cmd):
-        # createtracker filename filesize description md5 ip_addr port_num
-        m = re.match('(createtracker) ([^ ]+) ([^ ]+) (".*") ([^ ]+) ([^ ]+)'
-                     ' ([^ ]+)', next_cmd)
+        # createtracker filename description
+        m = re.match('(createtracker) ([^ ]+) (".*")', next_cmd)
         try:
             filename = m.group(2)
-            filesize = m.group(3)
-            desc = m.group(4)
-            md5 = m.group(5)
-            ip_addr = m.group(6)
-            port_num = m.group(7)
-            msg = "createtracker %s %s %s %s %s %s\n" % (filename, filesize, desc, md5,
-                                                         ip_addr, port_num)
+            desc = m.group(3)
+            msg = createtracker(filename, desc)
             if os.path.isfile(filename):
-                split_file(filename, 10)  # Said maximum chunk size 1KB?
+                split_file(filename, 10)  # TODO: Change to be chunk-size not number of files?
             else:
                 print("Cannot create tracker. This file does not exist.")
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
-                  'createtracker [filename] [filesize] [description] [md5] [ip-address] '
-                  '[port-number]')
+                  'createtracker [filename] [description]')
 
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
@@ -162,7 +178,7 @@ def cmd_tracker(server, cmd_q):
     elif re.match('GET .*', next_cmd):
         msg = next_cmd
 
-    elif next_cmd == 'REQ LIST':
+    elif next_cmd == 'REQ LIST' or next_cmd == 'LIST':
         msg = "REQ LIST\n"
 
     msg += ";endTCPmessage"
