@@ -155,17 +155,19 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 timestamp = int(round(time.time()))
                 new_pattern = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
                 new_contents = []
+                entry_pattern = '[^:]:[^:]:[^:]:[^:]:([^:])'
                 # Check each line or matching IP and port number
                 for line in f:
                     if re.match(old_pattern, line):
-                        new_line = re.sub(old_pattern, new_pattern, line)
-                        new_contents.append(new_line)
+                        new_pattern = re.sub(old_pattern, new_pattern, line)
+                        new_contents.append(new_pattern)
                         entry_found = True
-                    else:
+                    # Check that the timestamp in an entry is within the last 15 minutes.
+                    elif re.match(entry_pattern, line).group(1) > (timestamp - 900): # 900 seconds in 15 minutes.
                         new_contents.append(line)
                 if not entry_found:  # TODO: Needs testing
-                    new_line = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
-                    new_contents.append(new_line)
+                    new_pattern = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
+                    new_contents.append(new_pattern)
             print(new_contents)
             with open(f_track, 'wt') as f:
                 for line in new_contents:
@@ -197,6 +199,10 @@ def createtracker(f_name, f_size, desc, md5, ip_addr, port_num):
             f_track = './torrents/' + f_name
     else:  # appends .track if no given file extension
         f_track = './torrents/' + f_name + ".track"
+
+    if not os.path.isdir('./torrents/'):
+        os.mkdir('./torrents/')
+        print('Created \'./torrents/\' storage directory.')
 
     if os.path.isfile('./%s' % f_track):
         # File already exists
