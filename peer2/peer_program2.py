@@ -26,7 +26,7 @@ class PeerServer:
     def listen_to_client(self, client, address):
         try:
             filename = recv_from(client)
-            filename = filename[10:]
+            filename = filename[8:]
             filelist = split_file(filename, 10)
             segment_number = len(filelist)
             msg = "SEGMENT " + str(segment_number)
@@ -68,20 +68,22 @@ class PeerServer:
                 threading.Thread(target=self.listen_to_client, args=(client, address)).start()
             except Exception as e:
                 pass
+
     def quit(self):
         # TODO: Remove files from temporary folder.
         # TODO: Close all connected sockets
         self.welcome.close()
 
 cmd_q = queue.Queue()
+THIS_HOST = 'localhost'
+THIS_PORT = 62000
+
 
 def main():
-    this_host = 'localhost'  # this system hostname
-    this_port = 62000  # this system port number
     ts_host = 'localhost'
     ts_port = 60000
 
-    ps = PeerServer(this_host, this_port)
+    ps = PeerServer(THIS_HOST, THIS_PORT)
     try:
         # Peer functions as a server for other peer-clients
         ps_t = threading.Thread(target=ps.listen)
@@ -118,6 +120,7 @@ def commands():
                 print('Not a valid command.')
     except KeyboardInterrupt:
         pass
+
 
 def hashfile(afile, blocksize=65536):
     f = open(afile, 'rb')
@@ -157,6 +160,7 @@ def cmd_tracker(server):
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
                   'createtracker [filename] [description]')
+            return
 
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
@@ -172,6 +176,7 @@ def cmd_tracker(server):
             print('Improper number of arguments. Argument is formatted as: '
                   'updatetracker [filename] [start_bytes] [end_bytes] [ip-address] '
                   '[port-number]')
+            return
 
     elif re.match('GET .*', next_cmd):
         msg = next_cmd
@@ -181,10 +186,10 @@ def cmd_tracker(server):
 
     msg += ";endTCPmessage"
 
-    if len(msg) > 0:
+    if len(msg) > 14:
         msg = msg.encode("utf-8")
         server.sendall(msg)
-
+        recv_from_tracker(server)
 
 
 def split_file(filename, number_of_file):
@@ -226,11 +231,11 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
     server.connect((host, port))
     encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
     print("REQUEST %s" % original_filename)
-    folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
+    folder_name = hashlib.sha224(original_filename.encode()).hexdigest() + "/"
     # How does the server know to send this information?
     # file_name = server.recv(1024).decode('utf-8')
     if not os.path.exists(folder_name):
-        os.mkdir(folder_name)
+        os.makedirs(folder_name)
     else:
         clearfile = os.listdir(folder_name)
         print(clearfile)
@@ -238,8 +243,10 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             os.remove(folder_name + s)
     segment_name = recv_from(server)
     segment_length = int(segment_name.split(' ')[1])
-    nth_segment = random.randint(0, segment_length-1)
+    nth_segment = 0
     count = 0
+    start_bytes = 0
+    end_bytes = 0
     while count < segment_length:
         # Download file part
         print('Segment count: %s' % count)
@@ -248,7 +255,6 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             print('Writing to %s' % filename)
             command = 'REQUEST %s' % str(nth_segment)
             encode_and_send(server, command)
-            # received = server.recv(4096)
             received = recv_from(server)
             filesize = int(received)
             total = 0
@@ -263,14 +269,12 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             nth_segment += 1
             if nth_segment >= segment_length:
                 nth_segment = 0
-        #UpdateTracker Part
+        # UpdateTracker Part
 
-        start_bytes = end_bytes
-        end_bytes = start_bytes + total
-        ip_addr = 'localhost'
-        port_num = 62000
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes,
-                                                      end_bytes, ip_addr, port_num)
+        end_bytes += total
+        ip_addr = THIS_HOST
+        port_num = THIS_PORT
+        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes, end_bytes, ip_addr, port_num)
         cmd_q.put(msg)
 
     encode_and_send(server, 'FINISH')
@@ -283,6 +287,7 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             f.write(file_input.read())
             file_input.close()
 
+
 def track_comm(host: str, port: int):
     while True:
         try:
@@ -290,11 +295,11 @@ def track_comm(host: str, port: int):
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server.connect((host, port))
                 cmd_tracker(server)
-                recv_from_tracker(server)
                 server.close()
         except ConnectionRefusedError:
             print("ConnectionRefusedError: Tracking server currently down. Try again later.")
             break
+
 
 def recv_from_tracker(server: socket.socket):
     print("recv_from_tracker entered")  # TODO: Remove post-debug
@@ -308,12 +313,14 @@ def recv_from_tracker(server: socket.socket):
 
             # (ip_addr:port_num:start_byte:end_byte:time
             m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
-            if m:
+            try:
                 ip_addr = m.group(1)
                 port_num = int(m.group(2))
                 print('Match found: %s %s' % (ip_addr, port_num))
                 threading.Thread(target=download_file, args=(server, ip_addr, port_num, filename)).start()
                 break
+            except (UnboundLocalError, AttributeError):
+                pass
     print('recv_from_tracker exited')  # TODO: Remove post-debugging
 
 

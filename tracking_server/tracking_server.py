@@ -158,13 +158,21 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 entry_pattern = '[^:]:[^:]:[^:]:[^:]:([^:])'
                 # Check each line or matching IP and port number
                 for line in f:
-                    if re.match(old_pattern, line):
-                        new_pattern = re.sub(old_pattern, new_pattern, line)
-                        new_contents.append(new_pattern)
-                        entry_found = True
+                    try:
+                        if re.match(old_pattern, line):
+                            new_pattern = re.sub(old_pattern, new_pattern, line)
+                            new_contents.append(new_pattern)
+                            entry_found = True
                     # Check that the timestamp in an entry is within the last 15 minutes.
-                    elif re.match(entry_pattern, line).group(1) > (timestamp - 900): # 900 seconds in 15 minutes.
-                        new_contents.append(line)
+                        # elif re.match(entry_pattern, line).group(1) > (timestamp - 900): # 900 seconds in 15 minutes.
+                        #     new_contents.append(line)
+                        # TODO: Need to make sure dead peers get removed.
+                        # elif re.match(entry_pattern, line).group(1) < timestamp - 900:
+                        # print("Last update more than 15 minutes ago. Removing peer.")
+                        else:
+                            new_contents.append(line)
+                    except AttributeError:
+                        pass
                 if not entry_found:  # TODO: Needs testing
                     new_pattern = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
                     new_contents.append(new_pattern)
@@ -217,7 +225,7 @@ def createtracker(f_name, f_size, desc, md5, ip_addr, port_num):
                 f.write('# all comments must begin with # and must be ignored by the file parser\n'
                         '# following the above fields about file to be shared will be list of peers '
                         'sharing this file\n')
-                timestamp = time.time()
+                timestamp = int(time.time())
                 f.write('%s:%s:0:%s:%s\n' % (ip_addr, port_num, f_size, timestamp))
             reply_out = 'createtracker succ\n'
         except FileNotFoundError:
