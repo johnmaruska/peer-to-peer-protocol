@@ -68,16 +68,14 @@ class PeerServer:
                 threading.Thread(target=self.listen_to_client, args=(client, address)).start()
             except Exception as e:
                 pass
-
     def quit(self):
         # TODO: Remove files from temporary folder.
         # TODO: Close all connected sockets
         self.welcome.close()
 
+THIS_PORT = 62000
+THIS_HOST = "localhost"
 cmd_q = queue.Queue()
-THIS_HOST = 'localhost'
-THIS_PORT = 61000
-
 
 def main():
     ts_host = 'localhost'
@@ -121,7 +119,6 @@ def commands():
     except KeyboardInterrupt:
         pass
 
-
 def hashfile(afile, blocksize=65536):
     f = open(afile, 'rb')
     buf = f.read(blocksize)
@@ -160,7 +157,6 @@ def cmd_tracker(server):
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
                   'createtracker [filename] [description]')
-            return
 
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
@@ -176,7 +172,6 @@ def cmd_tracker(server):
             print('Improper number of arguments. Argument is formatted as: '
                   'updatetracker [filename] [start_bytes] [end_bytes] [ip-address] '
                   '[port-number]')
-            return
 
     elif re.match('GET .*', next_cmd):
         msg = next_cmd
@@ -186,10 +181,10 @@ def cmd_tracker(server):
 
     msg += ";endTCPmessage"
 
-    if len(msg) > 14:
+    if len(msg) > 0:
         msg = msg.encode("utf-8")
         server.sendall(msg)
-        recv_from_tracker(server)
+
 
 
 def split_file(filename, number_of_file):
@@ -219,6 +214,7 @@ def split_file(filename, number_of_file):
     for i in range(0, len(filelist)):
         filelist[i] = folder_name + "/" + filelist[i]
     os.chdir("../")
+
     return filelist
 
 
@@ -231,11 +227,11 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
     server.connect((host, port))
     encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
     print("REQUEST %s" % original_filename)
-    folder_name = hashlib.sha224(original_filename.encode()).hexdigest() + "/"
+    folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
     # How does the server know to send this information?
     # file_name = server.recv(1024).decode('utf-8')
     if not os.path.exists(folder_name):
-        os.makedirs(folder_name)
+        os.mkdir(folder_name)
     else:
         clearfile = os.listdir(folder_name)
         print(clearfile)
@@ -243,10 +239,9 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             os.remove(folder_name + s)
     segment_name = recv_from(server)
     segment_length = int(segment_name.split(' ')[1])
-    nth_segment = 0
+    print("SEGMENT_NAME:" + segment_name)
+    nth_segment = random.randint(0, segment_length-1)
     count = 0
-    start_bytes = 0
-    end_bytes = 0
     while count < segment_length:
         # Download file part
         print('Segment count: %s' % count)
@@ -255,6 +250,7 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             print('Writing to %s' % filename)
             command = 'REQUEST %s' % str(nth_segment)
             encode_and_send(server, command)
+            # received = server.recv(4096)
             received = recv_from(server)
             filesize = int(received)
             total = 0
@@ -269,12 +265,14 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             nth_segment += 1
             if nth_segment >= segment_length:
                 nth_segment = 0
-        # UpdateTracker Part
+        #UpdateTracker Part
 
-        end_bytes += total
-        ip_addr = THIS_HOST
-        port_num = THIS_PORT
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes, end_bytes, ip_addr, port_num)
+        start_bytes = end_bytes
+        end_bytes = start_bytes + total
+        ip_addr = 'localhost'
+        port_num = 62000
+        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes,
+                                                      end_bytes, ip_addr, port_num)
         cmd_q.put(msg)
 
     encode_and_send(server, 'FINISH')
@@ -286,6 +284,49 @@ def download_file(trackserver: socket.socket, host: str, port: int, original_fil
             file_input = open(name, 'rb')
             f.write(file_input.read())
             file_input.close()
+
+def download_file_segment(host: str, port: int, original_filename:str, segment:int, start_bytes:int, end_bytes:int):
+    print('Downloading file.')
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.connect((host, port))
+    encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
+    print("REQUEST %s" % original_filename)
+    folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
+    # How does the server know to send this information?
+    # file_name = server.recv(1024).decode('utf-8')
+    if not os.path.exists(folder_name):
+        os.mkdir(folder_name)
+    segment_name = recv_from(server)
+    segment_length = int(segment_name.split(' ')[1])
+    nth_segment = segment
+    count = 0
+    # Download file part
+    filename = folder_name + 'output' + str(nth_segment)
+    with open(filename, 'wb') as output:
+        print('Writing to %s' % filename)
+        command = 'REQUEST %s' % str(nth_segment)
+        encode_and_send(server, command)
+        # received = server.recv(4096)
+        received = recv_from(server)
+        filesize = int(received)
+        total = 0
+        while True:
+            if total >= filesize:
+                break
+            received = server.recv(4096)
+            # received = recv_from(server)
+            output.write(received)
+            total += len(received)
+        # UpdateTracker Part
+
+        ip_addr = 'localhost'
+        port_num = 62000
+        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes,
+                                                  end_bytes, ip_addr, port_num)
+        cmd_q.put(msg)
+
+    encode_and_send(server, 'FINISH')
+    server.close()
 
 
 def track_comm(host: str, port: int):
@@ -301,27 +342,55 @@ def track_comm(host: str, port: int):
             print("ConnectionRefusedError: Tracking server currently down. Try again later.")
             break
 
-
 def recv_from_tracker(server: socket.socket):
     print("recv_from_tracker entered")  # TODO: Remove post-debug
     server_response = recv_from(server)
     print(server_response)
     server_response = server_response.split('\n')
+    file_list = []
+    filesize = 0
+    filename = ""
     if server_response[0] == 'REP GET BEGIN':
         for line in server_response:
             if 'Filename: ' in line:
-                filename = line[10:]
-
+                filename = line[10:] #TODO: the number is weird.
+                file_name = filename
+                print("IN IF FILENAME: ", filename)
+            if 'Filesize: ' in line:
+                filesize = int(line[10:])
             # (ip_addr:port_num:start_byte:end_byte:time
             m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
-            try:
-                ip_addr = m.group(1)
-                port_num = int(m.group(2))
-                print('Match found: %s %s' % (ip_addr, port_num))
-                threading.Thread(target=download_file, args=(server, ip_addr, port_num, filename)).start()
+            if m:
+                file_tuple = (m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5))
+                file_list.append(file_tuple)
+                #threading.Thread(target=download_file_segment, args=(server, ip_addr, port_num, filename, segment, start_bytes, end_bytes)).start()
                 break
-            except (UnboundLocalError, AttributeError):
-                pass
+    segment = 10 #TODO: change the segment based on configure file
+    for i in range(0, segment):
+        start_bytes = filesize // segment * i
+        if i == segment-1:
+            end_bytes = filesize - start_bytes
+        else:
+            end_bytes = filesize // segment * (i+1)
+        for tup in file_list:
+            if tup[2] <= start_bytes and tup[3] >= end_bytes:
+                t = threading.Thread(target=download_file_segment,
+                                 args=(tup[0], tup[1], filename, i, start_bytes, end_bytes))
+                t.run()
+                break
+
+    if filename == "":
+        return
+
+    folder_name = "./temp_client/" + hashlib.sha224(filename.encode()).hexdigest() + "/"
+    filelist = os.listdir(folder_name)
+    with open(filename, 'wb') as f:
+        print('Writing to %s' % filename)
+        for name in filelist:
+            name = folder_name + name
+            file_input = open(name, 'rb')
+            f.write(file_input.read())
+            file_input.close()
     print('recv_from_tracker exited')  # TODO: Remove post-debugging
 
 
