@@ -154,21 +154,20 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 timestamp = int(round(time.time()))
                 new_pattern = '%s:%s:%s:%s:%s' % (ip_addr, port_num, start_byte, end_byte, timestamp)
                 new_contents = []
-                entry_pattern = '[^:]+:[^:]+:[^:]+:[^:]+:([\w]+)'
+                entry_pattern = '([^:\s]+:[^\s:]+:[^\s:]+:[^\s:]+:)([\w]+)'
                 # Check each line or matching IP and port number
                 for line in f:
-                    try:
-                        if re.match(old_pattern, line):
-                            new_pattern = re.sub(old_pattern, new_pattern, line)
-                            new_contents.append(new_pattern)
-                            entry_found = True
-                        # TODO: Need to make sure dead peers get removed.
-                        # elif int(re.match(entry_pattern, line).group(1)) < timestamp - 900:
-                        #     print("Last update more than 15 minutes ago. Removing peer.")
-                        else:
+                    if re.match(old_pattern, line):
+                        new_pattern = re.sub(old_pattern, new_pattern, line)
+                        new_contents.append(new_pattern)
+                        entry_found = True
+                    # TODO: Need to make sure dead peers get removed.
+                    else:
+                        m = re.match(entry_pattern, line)
+                        try:
+                            print("Timestamp: ", m.group(2))
+                        except Exception as e:
                             new_contents.append(line)
-                    except AttributeError:
-                        pass
                 if not entry_found:  # TODO: Needs testing
                     new_pattern = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
                     new_contents.append(new_pattern)
