@@ -114,7 +114,7 @@ def commands():
                 accepted_commands = ['createtracker', 'updatetracker', 'GET']
                 if cmd_args.group(1) in accepted_commands:
                     cmd_q.put(cmd)
-                elif re.match('REQ LIST', cmd):
+                elif cmd == 'LIST' or cmd == 'REQ LIST':
                     cmd_q.put('REQ LIST')
             except AttributeError:
                 print('Not a valid command.')
@@ -181,7 +181,7 @@ def cmd_tracker(server):
     elif re.match('GET .*', next_cmd):
         msg = next_cmd
 
-    elif next_cmd == 'REQ LIST' or next_cmd == 'LIST':
+    elif next_cmd == 'REQ LIST':
         msg = "REQ LIST\n"
 
     msg += ";endTCPmessage"

@@ -109,15 +109,16 @@ def commands():
         while True:
             time.sleep(0.1)
             cmd = input('$ ')
-            try:
-                cmd_args = re.match('^([^ ]+) (.*)', cmd)
-                accepted_commands = ['createtracker', 'updatetracker', 'GET']
-                if cmd_args.group(1) in accepted_commands:
-                    cmd_q.put(cmd)
-                elif re.match('REQ LIST', cmd):
-                    cmd_q.put('REQ LIST')
-            except AttributeError:
-                print('Not a valid command.')
+            if cmd == 'REQ LIST' or cmd == 'LIST':
+                cmd_q.put('REQ LIST')
+            else:
+                try:
+                    cmd_args = re.match('^([^ ]+) (.*)', cmd)
+                    accepted_commands = ['createtracker', 'updatetracker', 'GET']
+                    if cmd_args.group(1) in accepted_commands:
+                        cmd_q.put(cmd)
+                except AttributeError:
+                    print('Not a valid command.')
     except KeyboardInterrupt:
         pass
 
@@ -157,6 +158,7 @@ def cmd_tracker(server):
                 split_file(filename, 10)  # TODO: Change to be chunk-size not number of files?
             else:
                 print("Cannot create tracker. This file does not exist.")
+                return
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
                   'createtracker [filename] [description]')
@@ -295,7 +297,6 @@ def track_comm(host: str, port: int):
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server.connect((host, port))
                 cmd_tracker(server)
-                recv_from_tracker(server)
                 server.close()
         except ConnectionRefusedError:
             print("ConnectionRefusedError: Tracking server currently down. Try again later.")
