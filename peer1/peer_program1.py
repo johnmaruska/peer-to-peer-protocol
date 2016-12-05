@@ -258,7 +258,7 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
     segment_name = recv_from(peer_server)
     nth_segment = segment
     # Download file part
-    filename = folder_name + 'output' + str(nth_segment)
+    filename = folder_name + 'temp' + str(nth_segment)
     with open(filename, 'wb') as output:
         print('Writing to %s' % filename)
         command = 'REQUEST %s' % str(nth_segment)
