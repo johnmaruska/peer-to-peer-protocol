@@ -158,6 +158,7 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 # Check each line or matching IP and port number
                 for line in f:
                     if re.match(old_pattern, line):
+                        print("Matched old entry.")
                         new_pattern = re.sub(old_pattern, new_pattern, line)
                         new_contents.append(new_pattern)
                         entry_found = True
@@ -166,11 +167,13 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                         m = re.match(entry_pattern, line)
                         try:
                             print("Timestamp: ", m.group(2))
-                        except Exception as e:
+                            print("Curr Time: ", int(time.time()))
+                            new_contents.append(line)
+                            # TODO: Check if timed out.
+                        except AttributeError as e:
                             new_contents.append(line)
                 if not entry_found:  # TODO: Needs testing
-                    new_pattern = '%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp)
-                    new_contents.append(new_pattern)
+                    new_contents.append('%s:%s:%s:%s:%s\n' % (ip_addr, port_num, start_byte, end_byte, timestamp))
             with open(f_track, 'wt') as f:
                 for line in new_contents:
                     f.write(line)
