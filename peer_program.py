@@ -4,6 +4,7 @@
 """
 
 import hashlib
+import math
 import os
 import random
 import re
@@ -12,6 +13,11 @@ import sys
 import threading
 import time
 import queue
+
+THIS_PORT = 61000
+THIS_HOST = "localhost"
+cmd_q = queue.Queue()
+kill_all_threads = False
 
 
 class PeerServer:
@@ -25,6 +31,7 @@ class PeerServer:
 
     @staticmethod
     def listen_to_client(client, address):
+        global kill_all_threads
         try:
             filename = recv_from(client)
             filename = filename[8:]
@@ -32,7 +39,7 @@ class PeerServer:
             segment_number = len(filelist)
             msg = "SEGMENT " + str(segment_number)
             encode_and_send(client, msg)
-            while True:
+            while not kill_all_threads:
                 # TODO: receive messages and send data
                 res = recv_from(client)
                 if res == "FINISH":
@@ -58,13 +65,14 @@ class PeerServer:
             client.close()
 
     def listen(self):
+        global kill_all_threads
         self.welcome.listen(5)
-        while True:
+        while not kill_all_threads:
             try:
                 (client, address) = self.welcome.accept()
                 # creates a new thread for each client that joins in
                 threading.Thread(target=self.listen_to_client, args=(client, address)).start()
-            except Exception as e:
+            except Exception:
                 pass
 
     def quit(self):
@@ -72,25 +80,23 @@ class PeerServer:
         # TODO: Close all connected sockets
         self.welcome.close()
 
-THIS_PORT = 61000
-THIS_HOST = "localhost"
-cmd_q = queue.Queue()
-
 
 def main():
     ts_host = 'localhost'
     ts_port = 60000
 
     ps = PeerServer(THIS_HOST, THIS_PORT)
-    try:
+    try:  # Program will conclude when communication to the tracking server is cut.
         # Peer functions as a server for other peer-clients
         ps_t = threading.Thread(target=ps.listen)
-        ps_t.start()
         # one thread for connection to the server
         ts_t = threading.Thread(name='track', target=track_comm, args=(ts_host, ts_port))
-        ts_t.start()
         # one thread for raw input
         in_t = threading.Thread(name='input', target=commands, args=())
+        in_t.setDaemon(True)
+        # Start all threads.
+        ts_t.start()
+        ps_t.start()
         in_t.start()
         while ps_t.is_alive() and ts_t.is_alive() and in_t.is_alive():
             pass
@@ -103,21 +109,21 @@ def main():
 
 
 def commands():
-    try:  # loop input and enqueue command
-        while True:
-            time.sleep(0.1)
-            cmd = input('$ ')
-            try:
-                cmd_args = re.match('^([^ ]+) (.*)', cmd)
-                accepted_commands = ['createtracker', 'updatetracker', 'GET']
-                if cmd == 'LIST' or cmd == 'REQ LIST':
-                    cmd_q.put('REQ LIST')
-                elif cmd_args.group(1) in accepted_commands:
-                    cmd_q.put(cmd)
-            except AttributeError:
-                print('Not a valid command.')
-    except KeyboardInterrupt:
-        pass
+    global kill_all_threads
+    while not kill_all_threads:
+        time.sleep(0.1)
+        cmd = input('$ ')
+        try:
+            cmd_args = re.match('^([^ ]+) (.*)', cmd)
+            accepted_commands = ['createtracker', 'updatetracker', 'GET']
+            if cmd == 'LIST' or cmd == 'REQ LIST':
+                cmd_q.put('REQ LIST')
+            elif cmd == 'quit()':
+                kill_all_threads = True
+            elif cmd_args.group(1) in accepted_commands:
+                cmd_q.put(cmd)
+        except AttributeError:
+            print('Not a valid command.')
 
 
 def hashfile(afile, blocksize=65536):
@@ -185,8 +191,9 @@ def cmd_tracker(server):
     msg += ";endTCPmessage"
 
     if len(msg) > 14:
-        msg = msg.encode("utf-8")
-        server.sendall(msg)
+        # msg = msg.encode("utf-8")
+        # server.sendall(msg)
+        encode_and_send(server, msg)
         recv_from_tracker(server)
 
 
@@ -203,7 +210,7 @@ def split_file(filename, number_of_file):
     # Create hash folder to store split file segments
     folder_name = 'temp_client/' + hashlib.sha224(filename.encode()).hexdigest()
     if not os.path.exists("./" + folder_name):
-        os.mkdir(folder_name)
+        os.makedirs(folder_name)
 
     # Actually split the file into the separate segments
     with open(filename, "rb") as f:
@@ -222,122 +229,55 @@ def split_file(filename, number_of_file):
     for i in range(0, len(filelist)):  # prepend the name of the folder to each file name
         filelist[i] = folder_name + "/" + filelist[i]
     os.chdir("../")  # scope back into the proper working directory
+    os.chdir("../")
 
     return filelist
 
 
-def download_file(trackserver: socket.socket, host: str, port: int, original_filename):
-    start_bytes = 0
-    end_bytes = 0
-    print('Downloading file.')
-
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.connect((host, port))
-    encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
-    print("REQUEST %s" % original_filename)
-
-    # Make sure there's an empty storage folder for the file segments
-    folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
-    if not os.path.exists(folder_name):
-        os.mkdir(folder_name)
-    else:
-        clearfile = os.listdir(folder_name)
-        print(clearfile)
-        for s in clearfile:
-            os.remove(folder_name + s)
-
-    segment_name = recv_from(server)
-    segment_length = int(segment_name.split(' ')[1])
-    print("SEGMENT_NAME:" + segment_name)
-
-    nth_segment = random.randint(0, segment_length-1)  # TODO: Start at 0.
-    count = 0
-    while count < segment_length:
-        # Download file part
-        print('Segment count: %s' % count)
-        filename = folder_name + 'temp' + str(nth_segment)
-        with open(filename, 'wb') as output:
-            print('Writing to %s' % filename)
-            command = 'REQUEST %s' % str(nth_segment)
-            encode_and_send(server, command)
-            received = recv_from(server)
-            print("Received: ", received)
-            filesize = int(received)
-            print("Filesize: ", filesize)
-            total = 0
-            while True:
-                if total >= filesize:
-                    break
-                received = server.recv(4096)
-                output.write(received)
-                total += len(received)
-            count += 1
-            nth_segment += 1
-            if nth_segment >= segment_length:
-                nth_segment = 0
-
-        # UpdateTracker Part
-        start_bytes = end_bytes
-        end_bytes = start_bytes + total
-        ip_addr = THIS_HOST
-        port_num = THIS_PORT
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes,
-                                                  end_bytes, ip_addr, port_num)
-        cmd_q.put(msg)
-
-    encode_and_send(server, 'FINISH')
-    filelist = os.listdir(folder_name)
-    with open(original_filename, 'wb') as f:
-        print('Writing to %s' % original_filename)
-        for name in filelist:
-            name = folder_name + name
-            file_input = open(name, 'rb')
-            f.write(file_input.read())
-            file_input.close()
-
-
 def download_file_segment(host: str, port: int, original_filename: str, segment: int, start_bytes: int, end_bytes: int):
     print('Downloading file.')
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.connect((host, port))
-    encode_and_send(server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
+    peer_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    peer_server.connect((host, port))
+    encode_and_send(peer_server, ('REQUEST %s' % original_filename))  # TODO: Needs second argument: segment
     print("REQUEST %s" % original_filename)
 
     # Make sure there's a proper storage folder for the file segments.
     folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
-    segment_name = recv_from(server)
+    segment_name = recv_from(peer_server)
     nth_segment = segment
     # Download file part
     filename = folder_name + 'output' + str(nth_segment)
     with open(filename, 'wb') as output:
         print('Writing to %s' % filename)
         command = 'REQUEST %s' % str(nth_segment)
-        encode_and_send(server, command)
-        received = recv_from(server)
+        encode_and_send(peer_server, command)
+        received = recv_from(peer_server)
         filesize = int(received)
         total = 0
         while True:
             if total >= filesize:
                 break
-            received = server.recv(4096)
+            received = peer_server.recv(4096)
             output.write(received)
             total += len(received)
 
         # UpdateTracker Part
         ip_addr = THIS_HOST
         port_num = THIS_PORT
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, start_bytes,
+        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, 0,
                                                   end_bytes, ip_addr, port_num)
         cmd_q.put(msg)
 
-    encode_and_send(server, 'FINISH')
-    server.close()
+    encode_and_send(peer_server, 'FINISH')
+    peer_server.close()
+    return filesize
 
 
 def track_comm(host: str, port: int):
-    while True:
+    global kill_all_threads
+    while not kill_all_threads:
         try:
             if not cmd_q.empty():
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -349,54 +289,133 @@ def track_comm(host: str, port: int):
             break
 
 
-def recv_from_tracker(server: socket.socket):
-    print("recv_from_tracker entered")  # TODO: Remove post-debug
-    server_response = recv_from(server)
-    print(server_response)
-    server_response = server_response.split('\n')
-    file_list = []
-    filesize = 0
-    filename = ""
-    if server_response[0] == 'REP GET BEGIN':
-        for line in server_response:
-            if 'Filename: ' in line:
-                filename = line[10:]  # TODO: the number is weird.
-                print("IN IF FILENAME: ", filename)
-            if 'Filesize: ' in line:
-                filesize = int(line[10:])
-            # (ip_addr:port_num:start_byte:end_byte:time
-            m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
-            if m:
-                file_tuple = (m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5))
-                file_list.append(file_tuple)
-                break
-    segment = 10  # TODO: change the segment based on configure file
-    for i in range(0, segment):
-        start_bytes = filesize // segment * i
-        if i == segment-1:
-            end_bytes = filesize - start_bytes
-        else:
-            end_bytes = filesize // segment * (i+1)
-        for tup in file_list:
-            if tup[2] <= start_bytes and tup[3] >= end_bytes:
-                t = threading.Thread(target=download_file_segment,
-                                     args=(tup[0], tup[1], filename, i, start_bytes, end_bytes))
-                t.run()
-                break
+def track_file_ext(f_name: str):
+    if re.match('.*\.[\w]+\Z', f_name):
+        if not re.match('.*\.track\Z', f_name):
+            f_track = re.sub('\.[\w]+\Z', '.track', f_name)
+        else:  # file already has .track extension
+            f_track = f_name
+    else:  # appends .track if no given file extension
+        f_track = f_name + ".track"
+    return f_track
 
-    if filename == "":
+
+def write_local_tracker(reply: list, f_name: str, checksum: str):
+    # Remove server reply wrappers
+    reply.remove('REP GET BEGIN')
+    reply.remove('REP GET END ' + checksum)
+    # Give a .track extension
+    f_track = './temp_client/' + track_file_ext(f_name)
+    # Make sure there's a ./temp_client/ folder to use.
+    if not os.path.exists('./temp_client/'):
+        os.makedirs('./temp_client/')
+    # Write local
+    with open(f_track, 'wt') as f:
+        f.write('\n'.join(reply))
+
+
+def remove_local_tracker(f_name: str):
+    f_track = './temp_client/' + track_file_ext(f_name)
+    try:
+        os.remove(f_track)
+    except FileNotFoundError:
+        pass
+
+
+def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
+    global kill_all_threads
+    if f_name == "":
         return
+    # Peer list parameters:
+    #   [(ip_addr, port_num, start_byte, end_byte, time),...]
+    # seg_total = math.ceil(float(f_size) / max_chunk_size)
+    seg_total = 10
+    last_byte = 0
+    # Try and download all chunks.
+    for i in range(0, seg_total):
+        if kill_all_threads:
+            return False
+        # check for peers with needed code block
+        potential_seeds = []
+        downloaded = False
+        for peer in peers:
+            # Check if has bytes needed and is not self.
+            if peer[3] > last_byte and not (peer[0] == THIS_HOST and peer[1] == THIS_PORT):
+                potential_seeds.append(peer)
+        # Sort by descending timestamp. Most recent first.
+        sorted_seeds = sorted(potential_seeds, key=lambda x: x[3], reverse=True)
+        for peer in sorted_seeds:
+            try:  # download_file_segment will throw an exception if it fails.
+                # Download_file_segment parameters:
+                #   (host, port, filename, start, end)
+                last_byte += download_file_segment(peer[0], peer[1], f_name, i, peer[2], peer[3])
+                downloaded = True
+                break
+            except Exception as e:  # if the download fails remove the peer from seeds
+                print("ERR: ", e)
+        if not downloaded and not sorted_seeds:  # Halt the download manager if no available peers
+            print("Not downloaded and sorted empty.")
+            return
+    merge_segments(f_name)
+    remove_local_tracker(f_name)
+    new_checksum = hashfile(f_name)
+    if new_checksum != checksum:
+        print("ERROR: File was corrupted.")
+        os.remove(f_name)  # Remove corrupted file
+        remove_segment_folder(f_name)
+        cmd_q.put('updatetracker %s %s %s %s %s' % (f_name, 0, 0, THIS_HOST, THIS_PORT))
+        print("Corrupted content deleted - please try again.")
+        return False
+    return True
 
-    folder_name = "./temp_client/" + hashlib.sha224(filename.encode()).hexdigest() + "/"
+
+def remove_segment_folder(f_name: str):
+    print("Removing folder of corrupted segments")
+    folder_name = "./temp_client/" + hashlib.sha224(f_name.encode()).hexdigest() + "/"
     filelist = os.listdir(folder_name)
-    with open(filename, 'wb') as f:
-        print('Writing to %s' % filename)
+    [os.remove(folder_name + x) for x in filelist]
+    os.rmdir(folder_name)
+
+
+# Merge segments back into a single file.
+def merge_segments(f_name: str):
+    folder_name = "./temp_client/" + hashlib.sha224(f_name.encode()).hexdigest() + "/"
+    filelist = os.listdir(folder_name)
+    with open(f_name, 'wb') as f:
+        print('Writing to %s' % f_name)
         for name in filelist:
             name = folder_name + name
             file_input = open(name, 'rb')
             f.write(file_input.read())
             file_input.close()
-    print('recv_from_tracker exited')  # TODO: Remove post-debugging
+
+
+def recv_from_tracker(server: socket.socket):
+    response = recv_from(server)
+    print(response)
+    response = response.split('\n')
+    peer_list = []
+    filesize = 0
+    filename = ""
+    if response[0] == 'REP GET BEGIN':
+        # Parse for download information.
+        for line in response:
+            if 'Filename: ' in line:
+                filename = line[10:]  # TODO: the number is weird.
+                print("IN IF FILENAME: ", filename)
+            if 'Filesize: ' in line:
+                filesize = int(line[10:])
+            if 'MD5: ' in line:
+                md5 = line[5:]
+            # ip_addr:port_num:start_byte:end_byte:time
+            m = re.match('([^:]+):([^:]+):([^:]+):([^:]+):([^:]+)', line)
+            if m:
+                file_tuple = (m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), m.group(5))
+                peer_list.append(file_tuple)
+
+        write_local_tracker(response, filename, md5)
+        dm_t = threading.Thread(target=download_manager, args=(filename, filesize, peer_list, md5))
+        dm_t.start()
 
 
 def recv_from(server: socket.socket):
@@ -407,7 +426,6 @@ def recv_from(server: socket.socket):
             msg = (server.recv(1024)).decode("utf-8")
         except ConnectionAbortedError as e:
             return e
-            break
         if end_marker in msg:
             total_msg.append(msg[:msg.find(end_marker)])
             break
@@ -427,7 +445,6 @@ def recv_from(server: socket.socket):
 def encode_and_send(client: socket.socket, msg: str):
     msg += ';endTCPmessage'
     client.send(msg.encode('utf-8'))
-
 
 if __name__ == "__main__":
     sys.exit(main())

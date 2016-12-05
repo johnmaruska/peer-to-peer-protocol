@@ -36,6 +36,7 @@ def listen_to_client(client):
     try:
         # receive command
         cmd_in = recv_msg(client)
+        print('%s: %s' % (client.getsockname(), cmd_in))
         # Check for and execute createtracker command
         if re.match("createtracker .*", cmd_in):
             try:
@@ -50,11 +51,8 @@ def listen_to_client(client):
                 ip_addr = m.group(6)
                 port_num = m.group(7).strip('\n')
                 reply_out = createtracker(f_name, f_size, desc, md5, ip_addr, port_num)
-                reply_out += ';endTCPmessage'
-                client.send(reply_out.encode('utf-8'))
             except (IndexError, AttributeError):
                 reply_out = 'createtracker fail\n'
-                client.send(reply_out.encode('utf-8'))
         # Check for and execute updatetracker command
         if re.match('updatetracker .*', cmd_in):
             try:
@@ -65,15 +63,11 @@ def listen_to_client(client):
                 ip_addr = m.group(5)
                 port_num = m.group(6).strip('\n')
                 reply_out = updatetracker(f_name, start_bytes, end_bytes, ip_addr, port_num)
-                reply_out += ";endTCPmessage"
-                client.send(reply_out.encode('utf-8'))
             except (IndexError, AttributeError):
                 reply_out = 'updatetracker fail\n'
-                client.send(reply_out.encode('utf-8'))
         # Check for and execute REQ LIST command
         if cmd_in == 'REQ LIST\n':
             reply_out = req_list()
-            client.send(reply_out.encode('utf-8'))
         # Check for and execute GET command
         if re.match('GET .*\..*', cmd_in):
             m = re.match('GET ([^ ]+\.track)', cmd_in)
@@ -82,8 +76,9 @@ def listen_to_client(client):
                 reply_out = get(tracker_file)
             except AttributeError:
                 reply_out = cmd_in.strip('\n') + ' does not request a .track file.'
-            reply_out += ';endTCPmessage'
-            client.send(reply_out.encode('utf-8'))
+        print('%s: %s' % (client.getsockname(), reply_out))
+        reply_out += ';endTCPmessage'
+        client.send(reply_out.encode('utf-8'))
     finally:
         client.close()
 
@@ -128,7 +123,7 @@ def req_list():
         except UnboundLocalError:
             reply_msg = '%s ERROR: %s not properly formatted.\n' % (file_num, track_files[t_file])
             pass
-    reply_msg += 'REP LIST END\n;endTCPmessage'
+    reply_msg += 'REP LIST END\n'
     return reply_msg
 
 
@@ -158,7 +153,6 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                 # Check each line or matching IP and port number
                 for line in f:
                     if re.match(old_pattern, line):
-                        print("Matched old entry.")
                         new_pattern = re.sub(old_pattern, new_pattern, line)
                         new_contents.append(new_pattern)
                         entry_found = True
@@ -166,8 +160,6 @@ def updatetracker(f_name, start_byte, end_byte, ip_addr, port_num):
                     else:
                         m = re.match(entry_pattern, line)
                         try:
-                            print("Timestamp: ", m.group(2))
-                            print("Curr Time: ", int(time.time()))
                             new_contents.append(line)
                             # TODO: Check if timed out.
                         except AttributeError as e:
