@@ -20,6 +20,8 @@ ps_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 ps_s.bind((THIS_HOST, 0))
 THIS_PORT = ps_s.getsockname()[1]
 cmd_q = queue.Queue()
+LAST_UP = time.time()
+UP_INTERVAL = 0;
 
 class PeerServer:
     def __init__(self, welcome: socket.socket):
@@ -83,7 +85,7 @@ def main():
     sect = confi['Section']
     ts_port = int(sect['Port'])
     host_ip = sect['Ip']
-    interval = sect['Interval']
+    UP_INTERVAL = sect['Interval']
 
     ts_host = 'localhost'
     #ts_port = 60000
@@ -114,6 +116,13 @@ def commands(cmd_q):
         while True:
             time.sleep(0.1)
             cmd = input('$ ')
+            if time.time()-LAST_UP < UP_INTERVAL*60:
+                flist.open('filelist.txt', 'r')
+                size = os.path.getsize(filename)
+                for line in flist:
+                    cmd_q.put("updatetracker %s 0 %s %s %s" % (filename, size, THIS_HOST, THIS_PORT))
+                flist.close()
+
             try:
                 cmd_args = re.match('^([^ ]+) (.*)', cmd)
                 accepted_commands = ['createtracker', 'updatetracker', 'GET']
@@ -141,8 +150,10 @@ def createtracker(filename, desc):
         md5 = hashfile(open(filename, 'rb'))
         ip = THIS_HOST
         port = THIS_PORT
-        time = time.time()
-        return 'createtracker %s %s %s %s %s %s %s' % (filename, size, desc, md5, ip, port, time)
+        flist = open('filelist.txt', 'w')
+        flist.write("%s /n" %filename)
+        flist.close()
+        return 'createtracker %s %s %s %s %s %s' % (filename, size, desc, md5, ip, port)
     else:
         return 'createtracker fail'
 
@@ -174,9 +185,17 @@ def cmd_tracker(server, cmd_q):
             end_bytes = m.group(4)
             ip_addr = m.group(5)
             port_num = m.group(6)
-            time = time.time()
-            msg = "updatetracker %s %s %s %s %s %s\n" % (filename, start_bytes,
-                                                      end_bytes, ip_addr, port_num, time)
+            msg = "updatetracker %s %s %s %s %s\n" % (filename, start_bytes,
+                                                      end_bytes, ip_addr, port_num)
+            flist.open('filelist.txt', 'r+')
+            found = False
+            for line in flist:
+                if filename in line:
+                    found = True
+            if found:
+                flist.write("%s /n" %filename)
+            flist.close()
+
         except AttributeError:
             print('Improper number of arguments. Argument is formatted as: '
                   'updatetracker [filename] [start_bytes] [end_bytes] [ip-address] '

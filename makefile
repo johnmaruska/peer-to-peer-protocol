@@ -58,24 +58,24 @@ updatecfg:
 	cp serverThreadConfig.cfg tracking_server
 
 run1:
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer1 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer2 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/tracking_server && bash" &
+	uxterm -e "cd peer1 && bash" &
+	uxterm -e "cd peer2 && bash" &
+	uxterm -e "cd tracking_server && bash" &
 
 run2:
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer3 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer4 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer5 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer6 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer7 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer8 && bash" &
+	uxterm -e "cd peer3 && bash" &
+	uxterm -e "cd peer4 && bash" &
+	uxterm -e "cd peer5 && bash" &
+	uxterm -e "cd peer6 && bash" &
+	uxterm -e "cd peer7 && bash" &
+	uxterm -e "cd peer8 && bash" &
 
 run3:
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer9 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer10 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer11 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer12 && bash" &
-	uxterm -e "cd /usr/local/home/jremtf/SDRIVE/CS5600/peer-to-peer-protocol/peer13 && bash" &
+	uxterm -e "cd peer9 && bash" &
+	uxterm -e "cd peer10 && bash" &
+	uxterm -e "cd peer11 && bash" &
+	uxterm -e "cd peer12 && bash" &
+	uxterm -e "cd peer13 && bash" &
 
 startserver:
 	python3 tracking_server.py
