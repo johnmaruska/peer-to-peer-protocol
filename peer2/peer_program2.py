@@ -14,6 +14,7 @@ import threading
 import time
 import queue
 
+MAX_CHUNK_SIZE = 1024
 THIS_PORT = 62000
 THIS_HOST = "localhost"
 cmd_q = queue.Queue()
@@ -35,29 +36,36 @@ class PeerServer:
         try:
             filename = recv_from(client)
             filename = filename[8:]
-            filelist = split_file(filename, 10)
-            segment_number = len(filelist)
+            print(filename)
+            foldername = 'temp_client/' + hashlib.sha224(filename.encode()).hexdigest() + '/'
+            segment_number = len(os.listdir('./' + foldername + '/'))
             msg = "SEGMENT " + str(segment_number)
             encode_and_send(client, msg)
             while not kill_all_threads:
                 # TODO: receive messages and send data
                 res = recv_from(client)
+                print(res)
                 if res == "FINISH":
                     break
                 if res.split(' ')[0] == "REQUEST":
                     res_list = res.split(' ')
-                    print("Send File " + res_list[1])
-                    file_size = os.path.getsize(filelist[int(res_list[1])])
+                    filename = 'temp' + res_list[1]
+                    os.chdir(foldername)
+                    file_size = os.path.getsize(filename)
                     file_size = str(file_size)
                     encode_and_send(client, file_size)
-                    output = open(filelist[int(res_list[1])], "rb")
+                    output = open(filename, "rb")
                     l = output.read(4096)
                     while l:
                         client.send(l)
                         l = output.read(4096)
+                    os.chdir('../')
+                    os.chdir('../')
                     output.close()
         except ConnectionResetError:
             print("ConnectionResetError: Connection forcibly closed by remote host.")
+        except (TypeError, OSError) as e:
+            print("%s: Non-existent file requested." % e)
         except Exception as e:
             print("Unexpected exception: %s" % e)
             raise e
@@ -157,7 +165,8 @@ def cmd_tracker(server):
             desc = m.group(3)
             msg = createtracker(filename, desc)
             if os.path.isfile(filename):
-                split_file(filename, 10)  # TODO: Change to be chunk-size not number of files?
+                # Long process time. Split into thread for more rapid server response.
+                threading.Thread(target=split_file, args=(filename,)).start()
             else:
                 print("Cannot create tracker. This file does not exist.")
                 return
@@ -197,7 +206,8 @@ def cmd_tracker(server):
         recv_from_tracker(server)
 
 
-def split_file(filename, number_of_file):
+def split_file(filename):
+    global MAX_CHUNK_SIZE
     try:
         size = os.path.getsize(filename)
     except FileNotFoundError:  # Sometimes randomly doesn't find the file - try again.
@@ -206,7 +216,7 @@ def split_file(filename, number_of_file):
         except FileNotFoundError:
             print("FileNotFoundError: The system cannot find the file specified: %s" % filename)
             return
-
+    number_of_file = math.ceil(float(size) / MAX_CHUNK_SIZE)
     # Create hash folder to store split file segments
     folder_name = 'temp_client/' + hashlib.sha224(filename.encode()).hexdigest()
     if not os.path.exists("./" + folder_name):
@@ -324,12 +334,12 @@ def remove_local_tracker(f_name: str):
 
 def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
     global kill_all_threads
+    global MAX_CHUNK_SIZE
     if f_name == "":
         return
     # Peer list parameters:
     #   [(ip_addr, port_num, start_byte, end_byte, time),...]
-    # seg_total = math.ceil(float(f_size) / max_chunk_size)
-    seg_total = 10
+    seg_total = math.ceil(float(f_size) / MAX_CHUNK_SIZE)
     last_byte = 0
     # Try and download all chunks.
     for i in range(0, seg_total):
