@@ -172,7 +172,7 @@ def cmd_tracker(server):
                 return
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: '
-                  'createtracker [filename] [description]')
+                  'createtracker [filename] "[description]"')
             return
 
     elif re.match('updatetracker .*', next_cmd):
@@ -200,8 +200,6 @@ def cmd_tracker(server):
     msg += ";endTCPmessage"
 
     if len(msg) > 14:
-        # msg = msg.encode("utf-8")
-        # server.sendall(msg)
         encode_and_send(server, msg)
         recv_from_tracker(server)
 
@@ -244,7 +242,7 @@ def split_file(filename):
     return filelist
 
 
-def download_file_segment(host: str, port: int, original_filename: str, segment: int, start_bytes: int, end_bytes: int):
+def download_file_segment(host: str, port: int, original_filename: str, segment: int):
     print('Downloading file.')
     peer_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     peer_server.connect((host, port))
@@ -258,7 +256,7 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
     segment_name = recv_from(peer_server)
     nth_segment = segment
     # Download file part
-    filename = folder_name + 'output' + str(nth_segment)
+    filename = folder_name + 'temp' + str(nth_segment)
     with open(filename, 'wb') as output:
         print('Writing to %s' % filename)
         command = 'REQUEST %s' % str(nth_segment)
@@ -272,13 +270,6 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
             received = peer_server.recv(4096)
             output.write(received)
             total += len(received)
-
-        # UpdateTracker Part
-        ip_addr = THIS_HOST
-        port_num = THIS_PORT
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, 0,
-                                                  end_bytes, ip_addr, port_num)
-        cmd_q.put(msg)
 
     encode_and_send(peer_server, 'FINISH')
     peer_server.close()
@@ -340,9 +331,19 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
     # Peer list parameters:
     #   [(ip_addr, port_num, start_byte, end_byte, time),...]
     seg_total = math.ceil(float(f_size) / MAX_CHUNK_SIZE)
-    last_byte = 0
+
+    try:
+        foldername = './temp_client/' + hashlib.sha224(f_name.encode()).hexdigest() + '/'
+        filelist = os.listdir(foldername)
+        filelist = [int(x.lstrip('temp')) for x in filelist]
+        last_segment = max(filelist)
+        last_byte = MAX_CHUNK_SIZE * last_segment + os.path.getsize(foldername + 'temp' + str(last_segment))
+    except FileNotFoundError as e:
+        last_segment = 0
+        last_byte = 0
+
     # Try and download all chunks.
-    for i in range(0, seg_total):
+    for i in range(last_segment, seg_total):
         if kill_all_threads:
             return False
         # check for peers with needed code block
@@ -356,9 +357,9 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
         sorted_seeds = sorted(potential_seeds, key=lambda x: x[3], reverse=True)
         for peer in sorted_seeds:
             try:  # download_file_segment will throw an exception if it fails.
-                # Download_file_segment parameters:
-                #   (host, port, filename, start, end)
-                last_byte += download_file_segment(peer[0], peer[1], f_name, i, peer[2], peer[3])
+                last_byte += download_file_segment(peer[0], peer[1], f_name, i)
+                msg = "updatetracker %s %s %s %s %s\n" % (f_name, 0, last_byte, THIS_HOST, THIS_PORT)
+                cmd_q.put(msg)
                 downloaded = True
                 break
             except Exception as e:  # if the download fails remove the peer from seeds
