@@ -13,29 +13,22 @@ import sys
 import threading
 import time
 import queue
-import configparser
 
-
+MAX_CHUNK_SIZE = 1024
+THIS_PORT = 62000
 THIS_HOST = "localhost"
 cmd_q = queue.Queue()
 kill_all_threads = False
-ps_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-ps_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-ps_s.bind((THIS_HOST, 0))
-THIS_PORT = ps_s.getsockname()[1]
 
-confi = configparser.ConfigParser()
-confi.read('clientThreadConfig.cfg')
-sect = confi['Section']
-TS_PORT = int(sect['Port'])
-HOST_IP = sect['Ip']
-UP_INTERVAL = int(sect['Interval'])
-MAX_CHUNK_SIZE = int(sect['Filesize'])
-TS_HOST = 'localhost'
 
 class PeerServer:
-    def __init__(self, welcome: socket.socket):
-       self.welcome = ps_s
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        # TODO: wrap these in try blocks ?
+        self.welcome = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.welcome.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.welcome.bind((self.host, self.port))
 
     @staticmethod
     def listen_to_client(client, address):
@@ -97,12 +90,15 @@ class PeerServer:
 
 
 def main():
-    ps = PeerServer(ps_s)
+    ts_host = 'localhost'
+    ts_port = 60000
+
+    ps = PeerServer(THIS_HOST, THIS_PORT)
     try:  # Program will conclude when communication to the tracking server is cut.
         # Peer functions as a server for other peer-clients
         ps_t = threading.Thread(target=ps.listen)
         # one thread for connection to the server
-        ts_t = threading.Thread(name='track', target=track_comm, args=(TS_HOST, TS_PORT))
+        ts_t = threading.Thread(name='track', target=track_comm, args=(ts_host, ts_port))
         # one thread for raw input
         in_t = threading.Thread(name='input', target=commands, args=())
         in_t.setDaemon(True)
@@ -119,15 +115,6 @@ def main():
         # is a possibility and required here.
         ps.quit()
 
-def timeup():
-    threading.Timer(UP_INTERVAL, timeup).start()
-    flist=open('filelist.txt', 'r')
-    for line in flist:
-        if not line.isspace():
-            size = os.path.getsize(line)
-            cmd_q.put("updatetracker %s 0 %s %s %s" % (line, size, THIS_HOST, THIS_PORT))
-    flist.close()
-timeup()
 
 def commands():
     global kill_all_threads
@@ -162,9 +149,6 @@ def createtracker(filename, desc):
         md5 = hashfile(filename)
         ip = THIS_HOST
         port = THIS_PORT
-        flist = open('filelist.txt', 'w')
-        flist.write("%s"  %filename)
-        flist.close()
         return 'createtracker %s %s %s %s %s %s' % (filename, size, desc, md5, ip, port)
     else:
         return 'createtracker fail'
@@ -187,8 +171,10 @@ def cmd_tracker(server):
                 print("Cannot create tracker. This file does not exist.")
                 return
         except AttributeError:
-            print('Improper number of arguments. createtracker is formatted as: createtracker [filename] "[description]"')
-                        return
+            print('Improper number of arguments. createtracker is formatted as: '
+                  'createtracker [filename] "[description]"')
+            return
+
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
         try:
@@ -199,14 +185,6 @@ def cmd_tracker(server):
             port_num = m.group(6)
             msg = "updatetracker %s %s %s %s %s\n" % (filename, start_bytes,
                                                       end_bytes, ip_addr, port_num)
-            flist=open('filelist.txt', 'r+')
-            found = False
-            for line in flist:
-                if filename in line:
-                    found = True
-            if not found:
-                flist.write("%s" %filename)
-            flist.close()
         except AttributeError:
             print('Improper number of arguments. Argument is formatted as: '
                   'updatetracker [filename] [start_bytes] [end_bytes] [ip-address] '
@@ -262,7 +240,6 @@ def split_file(filename):
     os.chdir("../")
 
     return filelist
-
 
 
 def download_file_segment(host: str, port: int, original_filename: str, segment: int):
@@ -354,6 +331,7 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
     # Peer list parameters:
     #   [(ip_addr, port_num, start_byte, end_byte, time),...]
     seg_total = math.ceil(float(f_size) / MAX_CHUNK_SIZE)
+
     try:
         foldername = './temp_client/' + hashlib.sha224(f_name.encode()).hexdigest() + '/'
         filelist = os.listdir(foldername)
@@ -392,9 +370,6 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
     merge_segments(f_name)
     remove_local_tracker(f_name)
     new_checksum = hashfile(f_name)
-    flist = open('filelist.txt', 'w')
-    flist.write("%s" %f_name)
-    flist.close()
     if new_checksum != checksum:
         print("ERROR: File was corrupted.")
         os.remove(f_name)  # Remove corrupted file

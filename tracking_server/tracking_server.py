@@ -12,6 +12,7 @@ import time
 import configparser
 
 
+
 # TODO: Fix message structure to include '<' '>' '\n' characters.
 def main():
     config = configparser.ConfigParser()
