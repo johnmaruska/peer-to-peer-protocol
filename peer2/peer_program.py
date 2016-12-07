@@ -23,7 +23,6 @@ ps_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 ps_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 ps_s.bind((THIS_HOST, 0))
 THIS_PORT = ps_s.getsockname()[1]
-LAST_UP = time.time()
 
 confi = configparser.ConfigParser()
 confi.read('clientThreadConfig.cfg')
@@ -82,7 +81,7 @@ class PeerServer:
 
     def listen(self):
         global kill_all_threads
-        self.welcome.listen(5)
+        self.welcome.listen(20) # from 5 to 20
         while not kill_all_threads:
             try:
                 (client, address) = self.welcome.accept()
@@ -96,18 +95,7 @@ class PeerServer:
         # TODO: Close all connected sockets
         self.welcome.close()
 
-#def timeup():
- #   time.sleep(1)
-  #  threading.Timer(UP_INTERVAL, timeup).start()
-   # if time.time()-LAST_UP > UP_INTERVAL:
-    #            flist=open('filelist.txt', 'r')
-     #           for line in flist:
-      #              if not line.isspace():
-       #                 size = os.path.getsize(line)
-        #                cmd_q.put("updatetracker %s 0 %s %s %s" % (line, size, THIS_HOST, THIS_PORT))
-         #       flist.close()
-          #      LAST_UP=time.time()
-#timeup()
+
 def main():
     ps = PeerServer(ps_s)
     try:  # Program will conclude when communication to the tracking server is cut.
@@ -132,31 +120,20 @@ def main():
         ps.quit()
 
 def timeup():
-    #time.sleep(0.1)
-   # global LAST_UP
     threading.Timer(UP_INTERVAL, timeup).start()
-    #if time.time()-LAST_UP > UP_INTERVAL:
     flist=open('filelist.txt', 'r')
     for line in flist:
         if not line.isspace():
             size = os.path.getsize(line)
             cmd_q.put("updatetracker %s 0 %s %s %s" % (line, size, THIS_HOST, THIS_PORT))
     flist.close()
-    #LAST_UP=time.time()
 timeup()
+
 def commands():
     global kill_all_threads
     while not kill_all_threads:
         time.sleep(0.1)
         cmd = input('$ ')
- #       if time.time()-LAST_UP > UP_INTERVAL:
-  #              flist=open('filelist.txt', 'r')
-   #             for line in flist:
-    #                if not line.isspace():
-     #                   size = os.path.getsize(line)
-      #                  cmd_q.put("updatetracker %s 0 %s %s %s" % (line, size, THIS_HOST, THIS_PORT))
-       #         flist.close()
-        #        LAST_UP=time.time()
         try:
             cmd_args = re.match('^([^ ]+) (.*)', cmd)
             accepted_commands = ['createtracker', 'updatetracker', 'GET']
@@ -210,10 +187,8 @@ def cmd_tracker(server):
                 print("Cannot create tracker. This file does not exist.")
                 return
         except AttributeError:
-            print('Improper number of arguments. createtracker is formatted as: '
-                  'createtracker [filename] [description]')
+            print('Improper number of arguments. createtracker is formatted as: createtracker [filename] "[description]"')
             return
-
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
         try:
@@ -247,8 +222,6 @@ def cmd_tracker(server):
     msg += ";endTCPmessage"
 
     if len(msg) > 14:
-        # msg = msg.encode("utf-8")
-        # server.sendall(msg)
         encode_and_send(server, msg)
         recv_from_tracker(server)
 
@@ -264,9 +237,11 @@ def split_file(filename):
             print("FileNotFoundError: The system cannot find the file specified: %s" % filename)
             return
     number_of_file = math.ceil(float(size) / MAX_CHUNK_SIZE)
+ #   if not os.path.isdir('./temp_client/'):
+ #       os.mkdir('./temp_client/')
     # Create hash folder to store split file segments
     folder_name = 'temp_client/' + hashlib.sha224(filename.encode()).hexdigest()
-    if not os.path.exists("./" + folder_name):
+    if not os.path.exists("./" + folder_name): 
         os.makedirs(folder_name)
 
     # Actually split the file into the separate segments
@@ -284,14 +259,15 @@ def split_file(filename):
 
     filelist = os.listdir('.')
     for i in range(0, len(filelist)):  # prepend the name of the folder to each file name
-        filelist[i] = folder_name + "/" + filelist[i]
+        filelist[i] = "./" + folder_name + "/" + filelist[i]
     os.chdir("../")  # scope back into the proper working directory
     os.chdir("../")
 
     return filelist
 
 
-def download_file_segment(host: str, port: int, original_filename: str, segment: int, start_bytes: int, end_bytes: int):
+
+def download_file_segment(host: str, port: int, original_filename: str, segment: int):
     print('Downloading file.')
     peer_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     peer_server.connect((host, port))
@@ -305,7 +281,7 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
     segment_name = recv_from(peer_server)
     nth_segment = segment
     # Download file part
-    filename = folder_name + 'output' + str(nth_segment)
+    filename = folder_name + 'temp' + str(nth_segment)
     with open(filename, 'wb') as output:
         print('Writing to %s' % filename)
         command = 'REQUEST %s' % str(nth_segment)
@@ -319,13 +295,6 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
             received = peer_server.recv(4096)
             output.write(received)
             total += len(received)
-
-        # UpdateTracker Part
-        ip_addr = THIS_HOST
-        port_num = THIS_PORT
-        msg = "updatetracker %s %s %s %s %s\n" % (original_filename, 0,
-                                                  end_bytes, ip_addr, port_num)
-        cmd_q.put(msg)
 
     encode_and_send(peer_server, 'FINISH')
     peer_server.close()
@@ -387,9 +356,18 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
     # Peer list parameters:
     #   [(ip_addr, port_num, start_byte, end_byte, time),...]
     seg_total = math.ceil(float(f_size) / MAX_CHUNK_SIZE)
-    last_byte = 0
+    try:
+        foldername = './temp_client/' + hashlib.sha224(f_name.encode()).hexdigest() + '/'
+        filelist = os.listdir(foldername)
+        filelist = [int(x.lstrip('temp')) for x in filelist]
+        last_segment = max(filelist)
+        last_byte = MAX_CHUNK_SIZE * last_segment + os.path.getsize(foldername + 'temp' + str(last_segment))
+    except (FileNotFoundError, TypeError, ValueError) as e:
+        last_segment = 0
+        last_byte = 0
+
     # Try and download all chunks.
-    for i in range(0, seg_total):
+    for i in range(last_segment, seg_total):
         if kill_all_threads:
             return False
         # check for peers with needed code block
@@ -403,13 +381,14 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
         sorted_seeds = sorted(potential_seeds, key=lambda x: x[3], reverse=True)
         for peer in sorted_seeds:
             try:  # download_file_segment will throw an exception if it fails.
-                # Download_file_segment parameters:
-                #   (host, port, filename, start, end)
-                last_byte += download_file_segment(peer[0], peer[1], f_name, i, peer[2], peer[3])
+                last_byte += download_file_segment(peer[0], peer[1], f_name, i)
+                msg = "updatetracker %s %s %s %s %s\n" % (f_name, 0, last_byte, THIS_HOST, THIS_PORT)
+                cmd_q.put(msg)
                 downloaded = True
                 break
             except Exception as e:  # if the download fails remove the peer from seeds
                 print("ERR: ", e)
+                sorted_seeds.remove(peer)
         if not downloaded and not sorted_seeds:  # Halt the download manager if no available peers
             print("Not downloaded and sorted empty.")
             return
@@ -481,7 +460,9 @@ def recv_from_tracker(server: socket.socket):
 def recv_from(server: socket.socket):
     end_marker = ";endTCPmessage"
     total_msg = []
-    while True:
+    timeout = time.time() + 30 # 30 second timeout
+    while time.time() < timeout:
+        
         try:
             msg = (server.recv(1024)).decode("utf-8")
         except ConnectionAbortedError as e:

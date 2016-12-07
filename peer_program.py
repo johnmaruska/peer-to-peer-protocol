@@ -81,7 +81,7 @@ class PeerServer:
 
     def listen(self):
         global kill_all_threads
-        self.welcome.listen(5)
+        self.welcome.listen(20) # from 5 to 20
         while not kill_all_threads:
             try:
                 (client, address) = self.welcome.accept()
@@ -188,7 +188,7 @@ def cmd_tracker(server):
                 return
         except AttributeError:
             print('Improper number of arguments. createtracker is formatted as: createtracker [filename] "[description]"')
-                        return
+            return
     elif re.match('updatetracker .*', next_cmd):
         m = re.match('(updatetracker) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)', next_cmd)
         try:
@@ -237,9 +237,11 @@ def split_file(filename):
             print("FileNotFoundError: The system cannot find the file specified: %s" % filename)
             return
     number_of_file = math.ceil(float(size) / MAX_CHUNK_SIZE)
+ #   if not os.path.isdir('./temp_client/'):
+ #       os.mkdir('./temp_client/')
     # Create hash folder to store split file segments
     folder_name = 'temp_client/' + hashlib.sha224(filename.encode()).hexdigest()
-    if not os.path.exists("./" + folder_name):
+    if not os.path.exists("./" + folder_name): 
         os.makedirs(folder_name)
 
     # Actually split the file into the separate segments
@@ -257,7 +259,7 @@ def split_file(filename):
 
     filelist = os.listdir('.')
     for i in range(0, len(filelist)):  # prepend the name of the folder to each file name
-        filelist[i] = folder_name + "/" + filelist[i]
+        filelist[i] = "./" + folder_name + "/" + filelist[i]
     os.chdir("../")  # scope back into the proper working directory
     os.chdir("../")
 
@@ -360,7 +362,7 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
         filelist = [int(x.lstrip('temp')) for x in filelist]
         last_segment = max(filelist)
         last_byte = MAX_CHUNK_SIZE * last_segment + os.path.getsize(foldername + 'temp' + str(last_segment))
-    except FileNotFoundError as e:
+    except (FileNotFoundError, TypeError, ValueError) as e:
         last_segment = 0
         last_byte = 0
 
@@ -386,6 +388,7 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
                 break
             except Exception as e:  # if the download fails remove the peer from seeds
                 print("ERR: ", e)
+                sorted_seeds.remove(peer)
         if not downloaded and not sorted_seeds:  # Halt the download manager if no available peers
             print("Not downloaded and sorted empty.")
             return
@@ -457,7 +460,9 @@ def recv_from_tracker(server: socket.socket):
 def recv_from(server: socket.socket):
     end_marker = ";endTCPmessage"
     total_msg = []
-    while True:
+    timeout = time.time() + 30 # 30 second timeout
+    while time.time() < timeout:
+        
         try:
             msg = (server.recv(1024)).decode("utf-8")
         except ConnectionAbortedError as e:
