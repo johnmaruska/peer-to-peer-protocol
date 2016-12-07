@@ -15,7 +15,6 @@ import time
 import queue
 import configparser
 
-
 THIS_HOST = "localhost"
 cmd_q = queue.Queue()
 kill_all_threads = False
@@ -23,6 +22,9 @@ ps_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 ps_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 ps_s.bind((THIS_HOST, 0))
 THIS_PORT = ps_s.getsockname()[1]
+
+f = open('filelist.txt', 'w+') # create or overwrite so it is empty
+f.close()
 
 confi = configparser.ConfigParser()
 confi.read('clientThreadConfig.cfg')
@@ -49,6 +51,7 @@ class PeerServer:
             msg = "SEGMENT " + str(segment_number)
             encode_and_send(client, msg)
             while not kill_all_threads:
+                time.sleep(0.1)
                 # TODO: receive messages and send data
                 res = recv_from(client)
                 print(res)
@@ -81,12 +84,16 @@ class PeerServer:
 
     def listen(self):
         global kill_all_threads
-        self.welcome.listen(20) # from 5 to 20
+        self.welcome.listen(5)
         while not kill_all_threads:
+            time.sleep(0.1) #doesn't seem to help with cpu
             try:
                 (client, address) = self.welcome.accept()
+                print(client, address)
                 # creates a new thread for each client that joins in
-                threading.Thread(target=self.listen_to_client, args=(client, address)).start()
+                t = threading.Thread(target=self.listen_to_client, args=(client, address))
+                t.start()
+                t.join()
             except Exception:
                 pass
 
@@ -276,11 +283,13 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
 
     # Make sure there's a proper storage folder for the file segments.
     folder_name = "./temp_client/" + hashlib.sha224(original_filename.encode()).hexdigest() + "/"
+    print('here')
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
     segment_name = recv_from(peer_server)
     nth_segment = segment
     # Download file part
+    print('yo')
     filename = folder_name + 'temp' + str(nth_segment)
     with open(filename, 'wb') as output:
         print('Writing to %s' % filename)
@@ -304,6 +313,7 @@ def download_file_segment(host: str, port: int, original_filename: str, segment:
 def track_comm(host: str, port: int):
     global kill_all_threads
     while not kill_all_threads:
+        time.sleep(0.1)
         try:
             if not cmd_q.empty():
                 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -388,7 +398,7 @@ def download_manager(f_name: str, f_size: int, peers: list, checksum: str):
                 break
             except Exception as e:  # if the download fails remove the peer from seeds
                 print("ERR: ", e)
-                sorted_seeds.remove(peer)
+               # sorted_seeds.remove(peer)
         if not downloaded and not sorted_seeds:  # Halt the download manager if no available peers
             print("Not downloaded and sorted empty.")
             return
@@ -460,9 +470,8 @@ def recv_from_tracker(server: socket.socket):
 def recv_from(server: socket.socket):
     end_marker = ";endTCPmessage"
     total_msg = []
-    timeout = time.time() + 30 # 30 second timeout
-    while time.time() < timeout:
-        
+    timeout = time.time() + 20 #20 second timeout
+    while time.time()<timeout:        
         try:
             msg = (server.recv(1024)).decode("utf-8")
         except ConnectionAbortedError as e:
@@ -471,6 +480,7 @@ def recv_from(server: socket.socket):
             total_msg.append(msg[:msg.find(end_marker)])
             break
         total_msg.append(msg)
+        print(total_msg)
 
         # TODO: Weird section. Supposed to handle split msg, not sure how it works
         if len(total_msg) > 1:
